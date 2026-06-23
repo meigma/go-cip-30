@@ -31,3 +31,35 @@ Plan (rough):
   module path + imports, and remove template-only artifacts like `DELETE_ME.md`.
 
 Status: session primed; paused, awaiting the user's go-ahead and naming details.
+
+## 2026-06-23 16:29 — Rebrand implemented, PR opened
+Confirmed naming with the user: public root package `cip30`, module
+`github.com/meigma/go-cip-30`, library-only (no `cmd/`), code at root, scope
+limited to validating CIP-30 for auth/identification (no HTTP middleware).
+Decisions: keep release-please for semver tags (drop GoReleaser/container/ghd);
+keep + rebrand the MkDocs site.
+
+Done on worktree `.wt/feat-rebrand-cip30` (branch `feat/rebrand-cip30`):
+- Deleted CLI/binary/container machinery: `cmd/`, `internal/` (cli/config/
+  templateinfo), `Dockerfile`, `.dockerignore`, `.goreleaser.yaml`, `ghd.toml`,
+  `DELETE_ME.md`, the release/release-dry-run/security-scan workflows, and the
+  ghd asset-staging scripts.
+- Module → `github.com/meigma/go-cip-30`; added root `cip30` package (`doc.go`);
+  `go mod tidy` dropped Cobra/Viper (removed now-empty `go.sum`).
+- Rebranded config/CI: `.golangci.yml` local-prefix, `moon.yml` (project meta,
+  `build → go build ./...`, file groups), Dependabot (dropped docker),
+  `repository-settings.toml` (`is_template=false`, dry-run status checks → just
+  `ci`), release-please config (`package-name`) + manifest reset to `0.0.0`.
+- Rewrote README/CONTRIBUTING/SECURITY, MkDocs site (regenerated `docs/uv.lock`
+  for the renamed docs project), reset `CHANGELOG.md`.
+
+Verification all green: `go build/vet/test ./...`, `go mod tidy` no-op,
+`gofmt -l`, `golangci-lint run`, `mkdocs build --strict`; branding sweep for
+`template-go`/`templateinfo`/`TEMPLATE_GO` returns zero hits.
+
+PR: https://github.com/meigma/go-cip-30/pull/4 (chore: rebrand template-go
+scaffold into go-cip-30 library). CI running at checkpoint time (ci / Pages /
+Kusari pending). 35 files changed, +103/-2170.
+
+Next: confirm CI passes, then squash-merge the PR. Design doc + actual CIP-30
+API are the follow-up work.
