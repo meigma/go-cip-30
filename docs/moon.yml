@@ -7,8 +7,8 @@ tags:
   - 'uv'
 
 project:
-  title: 'template-go docs'
-  description: 'MkDocs documentation site for the Meigma Go repository template.'
+  title: 'go-cip-30 docs'
+  description: 'MkDocs documentation site for the go-cip-30 library.'
   owner: 'meigma'
   maintainers:
     - 'meigma'
