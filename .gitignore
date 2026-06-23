@@ -72,6 +72,9 @@ coverage/
 docs/build/
 docs/.venv/
 
+# Reference implementations (cloned via `moon run setup-ref`)
+/ref/
+
 # OS / editor
 .DS_Store
 .idea/
