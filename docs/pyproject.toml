@@ -1,7 +1,7 @@
 [project]
-name = "template-go-docs"
+name = "go-cip-30-docs"
 version = "0.0.0"
-description = "MkDocs documentation site for the Meigma Go repository template."
+description = "MkDocs documentation site for the go-cip-30 library."
 requires-python = ">=3.14"
 dependencies = [
     "mkdocs-material>=9.7.0",

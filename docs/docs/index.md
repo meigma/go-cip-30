@@ -1,16 +1,27 @@
 ---
-title: template-go Docs
+title: go-cip-30
 slug: /
-description: Starting point for Meigma Go projects.
+description: Go library for implementing CIP-30 in web2 backends.
 ---
 
-# template-go Docs
+# go-cip-30
 
-This repository is the starting point for Meigma Go projects.
+`go-cip-30` is a Go library for implementing the
+[CIP-30](https://cips.cardano.org/cip/CIP-30) Cardano dApp–wallet bridge in web2
+backend systems. It targets backend API builders who integrate with Cardano
+wallet extensions for authentication and identification.
 
-Generated projects should replace this page with project-specific documentation after bootstrapping:
+Scope is limited to what is needed to validate CIP-30 data for
+authentication/identification. It does not provide HTTP middleware or transport
+plumbing.
 
-- project summary
-- quick start
-- operating notes
-- support and security paths
+## Install
+
+```sh
+go get github.com/meigma/go-cip-30
+```
+
+## Status
+
+The library is in early development. API reference and guides will be published
+here as the API stabilizes.
