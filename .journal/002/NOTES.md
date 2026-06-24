@@ -190,3 +190,25 @@ User settled the last open decisions; all folded into DESIGN.md (§5/§7/§9/§1
 
 All five §9 decisions now resolved; nothing blocking remains. The design is
 ready to hand to an implementation session. Committed + pushed.
+
+## 2026-06-23 19:00 — Fixture tooling: cardano-signer (CLI, offline)
+User asked about a CLI wallet alternative to capture real vectors. Key insight:
+generating a CIP-30 data signature needs no chain/funds/network — just a key +
+COSE signing. Confirmed (via the repo README) that **`cardano-signer`**
+(gitmachtl) — the CLI the CIP-8 spec and the reference repo both recommend — is
+the right tool:
+- `keygen` makes keypairs offline (no wallet).
+- `sign --cip30` emits `COSE_Sign1_hex` + `COSE_Key_hex` (the two DataSignature
+  fields); flags `--data/--data-hex/--data-file`, `--secret-key`, `--address`,
+  `--hashed`, `--json-extended`.
+- `verify --cip30` is an **independent verification oracle** for cross-checking
+  our Go verdicts (true/exit0 vs false/exit1).
+- Install: prebuilt binary or npm.
+Better than a browser wallet: offline, deterministic, scriptable for CI, and
+doubles as an oracle. Updated DESIGN §11.3 (fixture matrix via cardano-signer),
+§7 + §9 (the two "confirm against a real vector" notes now point at
+`cardano-signer --hashed`), and §13 (added the reference link). This retires the
+"need a browser wallet" caveat. Committed + pushed.
+
+Did NOT install/run it this session (design-only scope) — offered to prototype
+a starter fixture set as an optional next step.

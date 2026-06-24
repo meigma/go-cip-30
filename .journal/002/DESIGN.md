@@ -442,7 +442,8 @@ Notes:
 - **Detached + hashed** (rare, and *untested* in the reference) reconstructs with
   the raw 28-byte `blake2b224(message)`. The reference's code path here appears to
   use the UTF-8 bytes of the hex digest instead — a likely bug we deliberately do
-  not replicate. Confirm against a real wallet vector before finalizing.
+  not replicate. Confirm with a `cardano-signer sign --cip30 --hashed` detached
+  vector before finalizing (§11).
 
 ## 8. Address matching (CIP-19)
 
@@ -534,8 +535,8 @@ wrong key/message/address). Port them verbatim (§10).
   "must accept either format for inputs."
 
 **Still open (minor, resolve while implementing):** none blocking. Confirm the
-detached+hashed reconstruction (§7) and the `MatchedVia` semantics against a real
-wallet vector during hardening.
+detached+hashed reconstruction (§7) and the `MatchedVia` semantics with
+`cardano-signer` vectors during hardening (§11).
 
 ## 10. Security considerations
 
@@ -581,9 +582,19 @@ Per TECH_NOTES: behavior-first, and **functional testing before "complete."**
 2. **Unit tests per internal package** — `cose` (decode, `Sig_structure` byte
    exactness, hashed/detached payload), `address` (header parse, each type,
    testnet/mainnet, script vs key, Byron rejection).
-3. **Functional / integration.** Capture one or two *real* `DataSignature`s from
-   a live wallet (Eternl / Lace / Nami) as fixtures and verify end-to-end — proof
-   the library works against real wallet output, not just the reference vectors.
+3. **Functional / integration — independent oracle via `cardano-signer`.**
+   Generate real `DataSignature` fixtures offline with
+   [`cardano-signer`][cardano-signer] (gitmachtl; the CLI the CIP-8 spec and the
+   reference repo both recommend) — no browser wallet, funds, or network needed,
+   and fully scriptable for CI. `keygen` makes keys; `sign --cip30` emits
+   `COSE_Sign1_hex` + `COSE_Key_hex`; `verify --cip30` is an *independent*
+   verification oracle to cross-check our verdicts against. Cover the matrix our
+   own code must handle: payment-key vs stake-key signatures against
+   base/enterprise/reward addresses (exercises `MatchedVia` + `StrictAddress`),
+   and `--hashed` with embedded *and* detached payloads (exercises the §7
+   detached+hashed reconstruction we deliberately diverge from the reference on).
+   Pin a handful as committed golden fixtures. Optionally add one capture from a
+   live wallet (Eternl / Lace) as a final real-world sanity check.
 4. **Negative & robustness.** Malformed hex/CBOR, truncated arrays, wrong
    lengths → typed errors, no panics. A native Go **fuzz** target on `Verify`.
 5. **Optional cross-check.** A test that runs the happy path through
@@ -612,9 +623,12 @@ perf-sensitive bits) `go-benchmarking`.
 - [CIP-19 — Cardano Addresses (header byte, credentials)][CIP-19]
 - [`cardano-verify-datasignature` — canonical TS reference][ref-ts]
   (`ref/cardano-verify-datasignature/index.ts` + `index.test.ts`)
+- [`cardano-signer` — CLI for offline CIP-30 sign/verify (test fixtures +
+  oracle)][cardano-signer]
 - RFC 8152 (COSE), RFC 9053; RFC 7693 (BLAKE2)
 
 [CIP-30]: https://github.com/cardano-foundation/CIPs/tree/master/CIP-0030
 [CIP-8]: https://github.com/cardano-foundation/CIPs/tree/master/CIP-0008
 [CIP-19]: https://github.com/cardano-foundation/CIPs/tree/master/CIP-0019
 [ref-ts]: https://github.com/cardano-foundation/cardano-verify-datasignature
+[cardano-signer]: https://github.com/gitmachtl/cardano-signer
