@@ -72,3 +72,11 @@ passes; cross-page anchors grep-verified in generated HTML.
 
 **PR #7** opened: https://github.com/meigma/go-cip-30/pull/7 (`3b0540a`). CI
 pending (ci / GitHub Pages / Kusari) at checkpoint time.
+
+## 2026-06-24 07:?? — PR #7 merged
+All CI green (ci / GitHub Pages build / Kusari). Developer approved; squash-merged
+to `master` as **`4c03f95`** (`docs: document the verification API with usage and
+security guides (#7)`). Updated local `master`, removed the `docs/library-docs`
+worktree + branch via `wt remove` (tree matched master). GitHub Pages deploy runs
+on the push to `master` → live site refreshes at
+https://meigma.github.io/go-cip-30/. Session goal complete.
