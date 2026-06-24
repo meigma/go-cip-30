@@ -206,7 +206,7 @@ func Verify(sig DataSignature, opts ...VerifyOption) (*Result, error)
 type Result struct {
     SignatureValid bool              // the Ed25519 signature verified
     Message        *MessageCheck     // non-nil iff WithMessage was supplied
-    Address        *AddressCheck     // non-nil iff WithAddress was supplied
+    Address        *AddressCheck     // non-nil iff WithAddress/WithEmbeddedAddress was supplied
     PublicKey      ed25519.PublicKey // the 32-byte key from the COSE_Key
     KeyHash        []byte            // blake2b-224(PublicKey): the 28-byte credential
 }
@@ -220,11 +220,12 @@ type MessageCheck struct {
 }
 
 type AddressCheck struct {
-    Matched    bool        // satisfied under the active (default / strict) policy
-    MatchedVia Credential  // which credential the key hash matched (or None)
-    Strict     bool        // whether StrictAddress was in force
-    Type       AddressType // base / enterprise / pointer / reward
-    Network    Network     // mainnet / testnet
+    Matched    bool          // satisfied under the active (default / strict) policy
+    MatchedVia Credential    // which credential the key hash matched (or None)
+    Strict     bool          // whether StrictAddress was in force
+    Source     AddressSource // caller-supplied vs the signer's embedded header address
+    Type       AddressType   // base / enterprise / pointer / reward
+    Network    Network       // mainnet / testnet
 }
 
 // Credential names which part of an address the signing key hash matched.
@@ -236,28 +237,47 @@ const (
     CredentialStake                     // matched the delegation/stake key hash
 )
 
+// AddressSource records where the checked address came from.
+type AddressSource uint8
+
+const (
+    AddressSupplied AddressSource = iota // from WithAddress
+    AddressEmbedded                      // from the COSE_Sign1 protected "address" header
+)
+
 type VerifyOption func(*verifyConfig)
 
-// WithMessage checks the signed payload against the expected plaintext, hashing
-// it with blake2b-224 iff the COSE_Sign1 sets unprotected "hashed": true. When
-// the COSE_Sign1 carries no embedded payload (detached), the message is used to
-// reconstruct the signed bytes so the signature check still runs (and the
-// message is then proven by the signature itself).
+// WithMessage checks the signed payload against the expected message. Following
+// the reference verifier: if the COSE_Sign1 sets unprotected "hashed": true, the
+// message is hashed with blake2b-224 before comparison UNLESS it is already a hex
+// string (treated as a pre-computed digest, via an is-hex guard). When the
+// COSE_Sign1 carries no embedded payload (detached), the message reconstructs the
+// signed bytes so the signature check still runs (and the message is then proven
+// by the signature itself).
 func WithMessage(message []byte) VerifyOption
 
 // WithAddress checks that blake2b-224(publicKey) matches a key-hash credential of
-// the given address (bech32 addr/stake, or raw hex bytes). DEFAULT policy mirrors
+// the given address. Per CIP-30, the address may be bech32 (addr/stake, mainnet
+// or _test) OR hex-encoded raw bytes; both are accepted. DEFAULT policy mirrors
 // the reference verifier: for a base address EITHER the payment OR the
 // delegation (stake) credential is accepted, and Result.Address.MatchedVia
 // reports which. Reward (stake) addresses match only their stake key; enterprise
 // addresses only their payment key.
 func WithAddress(addr string) VerifyOption
 
-// StrictAddress tightens WithAddress: a base address must match its PAYMENT
-// credential — a stake-only match becomes a failure (Matched=false,
-// MatchedVia=CredentialStake, Strict=true). This proves control of the address's
-// funds, not merely its delegation. No effect on enterprise/reward addresses,
-// whose only key-hash credential is unambiguous.
+// WithEmbeddedAddress checks the key against the address embedded in the
+// COSE_Sign1 protected header — the address the signer itself claimed — instead
+// of a caller-supplied one. Same credential logic; StrictAddress applies; the
+// result carries Source=AddressEmbedded. Use this when the signature is the
+// identity ("which address signed?"): it closes the impersonation vector of
+// trusting Signature.Address unverified. Mutually exclusive with WithAddress.
+func WithEmbeddedAddress() VerifyOption
+
+// StrictAddress tightens WithAddress / WithEmbeddedAddress: a base address must
+// match its PAYMENT credential — a stake-only match becomes a failure
+// (Matched=false, MatchedVia=CredentialStake, Strict=true). This proves control
+// of the address's funds, not merely its delegation. No effect on
+// enterprise/reward addresses, whose only key-hash credential is unambiguous.
 func StrictAddress() VerifyOption
 ```
 
@@ -273,7 +293,8 @@ type Signature struct {
     PublicKey ed25519.PublicKey // 32-byte key from COSE_Key x(-2)
     Payload   []byte            // embedded payload; nil/empty if detached
     Hashed    bool              // unprotected "hashed" flag
-    Address   []byte            // raw address bytes from the protected "address" header, if present
+    Address   []byte            // SELF-ASSERTED address from the protected header (signed but
+                                //   attacker-chosen): trust only after WithEmbeddedAddress
     // unexported: raw protected bytes, signature, decoded protected map
 }
 
@@ -374,9 +395,14 @@ Verify(sig, opts):
 
   res ← &Result{ PublicKey: x, KeyHash: blake2b224(x) }
 
+  # digest(msg, hashed): expected payload bytes for a message (reference parity)
+  #   not hashed            → msg
+  #   hashed & msg is hex   → hexDecode(msg)   # msg is already a blake2b-224 digest
+  #   hashed & msg not hex  → blake2b224(msg)
+
   # ---- 1. signature (always) ----
   detached ← cfg.message != nil and empty(payload)   # nil or zero-length payload
-  payloadForSig ← detached ? (hashed ? blake2b224(cfg.message) : cfg.message) : payload
+  payloadForSig ← detached ? digest(cfg.message, hashed) : payload
   sigStruct ← cborMarshal(["Signature1", protectedRaw, h'', payloadForSig])
   res.SignatureValid ← ed25519.Verify(x, sigStruct, signature)
 
@@ -385,12 +411,13 @@ Verify(sig, opts):
       if detached:                                   # message IS the signed payload…
           res.Message ← { Hashed: hashed, Matched: res.SignatureValid }  # …proven by the sig
       else:
-          want ← hashed ? blake2b224(cfg.message) : cfg.message
-          res.Message ← { Hashed: hashed, Matched: bytesEqual(payload, want) }
+          res.Message ← { Hashed: hashed, Matched: bytesEqual(payload, digest(cfg.message, hashed)) }
 
-  # ---- 3. address check (optional) ----
-  if cfg.address != "":
-      res.Address ← matchAddress(cfg.address, res.KeyHash, cfg.strict)   # see §8
+  # ---- 3. address check (optional; WithAddress XOR WithEmbeddedAddress) ----
+  addr, source ← cfg.useEmbedded ? (embeddedAddr, Embedded) : (cfg.address, Supplied)
+  if addr present:
+      res.Address ← matchAddress(addr, res.KeyHash, cfg.strict)   # see §8; accepts bech32 or hex
+      res.Address.Source ← source
 
   return res, nil
 
@@ -412,6 +439,10 @@ Notes:
 - When the payload is detached, the message *is* the signature check (a wrong
   message yields wrong reconstructed bytes → verify fails), so there is no
   separate equality step in that branch.
+- **Detached + hashed** (rare, and *untested* in the reference) reconstructs with
+  the raw 28-byte `blake2b224(message)`. The reference's code path here appears to
+  use the UTF-8 bytes of the hex digest instead — a likely bug we deliberately do
+  not replicate. Confirm against a real wallet vector before finalizing.
 
 ## 8. Address matching (CIP-19)
 
@@ -487,20 +518,24 @@ wrong key/message/address). Port them verbatim (§10).
   This pairs the transparent result (decide-for-yourself) with an opt-in hard
   guarantee. Confirm `MatchedVia` semantics against real wallet output.
 
-**Still open (resolve while implementing):**
+- **R2. `hashed` + pre-hashed message** → **follow the reference.** `WithMessage`
+  accepts either the raw plaintext (hashed with blake2b-224 when `hashed=true`) or
+  an already-hex digest (used as-is, via the is-hex guard). Caveat replicated: a
+  raw message that happens to be all-hex is treated as pre-hashed. (The detached +
+  hashed reconstruction follows the *correct* hash bytes, not the reference's
+  apparent bug — see §7.)
+- **R3. Embedded protected-header `address`** → **expose and offer to check it.**
+  `Signature.Address` carries the raw bytes, documented as self-asserted /
+  unverified; `WithEmbeddedAddress()` runs the credential check against it
+  (`Result.Address.Source = AddressEmbedded`), closing the impersonation vector of
+  trusting it blindly (§10). Mutually exclusive with `WithAddress`.
+- **R5. Address input forms** → **CIP-faithful.** `WithAddress` accepts bech32
+  (`addr`/`stake`, mainnet or `_test`) *or* hex-encoded raw bytes, per CIP-30's
+  "must accept either format for inputs."
 
-2. **`hashed` + pre-hashed message** — the reference accepts *either* the raw
-   message (it hashes) *or* an already-hex blake2b-224 digest (used as-is, via a
-   `!isHex` guard). Proposal: `WithMessage([]byte)` always means raw plaintext
-   and we hash iff `hashed`; expose pre-hashed input as a separate explicit
-   option only if a real caller needs it. Decide.
-3. **Embedded protected-header `address`** — it is signed (tamper-evident) but
-   the reference never checks it against the key. Proposal: expose it on
-   `Signature.Address`, and optionally offer a check that `blake2b-224(x)`
-   matches the embedded address (useful for auth: see §10).
-5. **Address input forms** — CIP-30 says addresses may be bech32 *or* hex bytes.
-   `WithAddress` should accept both (bech32 primary; raw hex as a convenience),
-   mirroring CIP-30's "accept either format for inputs."
+**Still open (minor, resolve while implementing):** none blocking. Confirm the
+detached+hashed reconstruction (§7) and the `MatchedVia` semantics against a real
+wallet vector during hardening.
 
 ## 10. Security considerations
 
@@ -510,9 +545,11 @@ supplying a crafted `DataSignature`.
 - **Bind key → identity explicitly.** The only thing that proves "key K controls
   address A" is `blake2b-224(K) == credential(A)`. The protected-header
   `"address"` is attacker-chosen at signing time (though signed), so it proves
-  only what the signer *claimed*. Auth callers must use `WithAddress` (or
-  `MatchesAddress`) against an address they independently expect — never trust
-  the embedded address alone.
+  only what the signer *claimed*. Auth callers must check the key against an
+  address: `WithAddress` for one they independently expect, or
+  `WithEmbeddedAddress` to validate the header's self-asserted address against the
+  key. Never read `Signature.Address` as "who signed" without one of those — it is
+  attacker-chosen.
 - **Payment vs delegation control are different claims.** A base address's
   payment and stake parts may belong to different parties (CIP-19 "mangled"
   addresses). A default (`MatchedVia=Stake`) match proves control of the
@@ -562,8 +599,9 @@ perf-sensitive bits) `go-benchmarking`.
    golden vectors. *Prove the core before adding options.*
 2. **Message check** — `WithMessage`, hashed + detached-payload reconstruction.
    Green on all message vectors.
-3. **Address check** — `internal/address`, CIP-19 parse, `WithAddress` /
-   `MatchesAddress`. Green on all address vectors.
+3. **Address check** — `internal/address`, CIP-19 parse (bech32 + hex input),
+   `WithAddress`, `WithEmbeddedAddress`, `StrictAddress`, `MatchesAddress`. Green
+   on all address vectors incl. `MatchedVia` / `Source` / strict assertions.
 4. **Hardening** — typed errors, fuzz target, real-wallet fixtures, docs, then
    resolve the §9 open decisions against observed behavior.
 

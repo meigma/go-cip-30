@@ -169,3 +169,24 @@ MatchedVia + strict failure).
 Still-open decisions (impl-time): pre-hashed message input; whether to check the
 embedded protected-header address against the key; accept hex addresses too.
 Committed + pushed.
+
+## 2026-06-23 18:45 — Resolved remaining 3 design decisions
+User settled the last open decisions; all folded into DESIGN.md (§5/§7/§9/§10):
+- **R2 pre-hashed message** → follow the reference: `WithMessage` accepts raw
+  plaintext (hashed iff `hashed`) OR an already-hex digest (is-hex guard,
+  quirk replicated). Added a `digest(msg, hashed)` helper to §7. Flagged that
+  the reference's detached+hashed reconstruction looks buggy (uses UTF-8 bytes
+  of the hex digest) and is untested — we use the correct 28 raw hash bytes,
+  confirm against a real vector.
+- **R3 embedded address** → my recommendation, accepted: expose
+  `Signature.Address` (raw, documented self-asserted/unverified) AND add
+  **`WithEmbeddedAddress()`** to run the credential check against the header's
+  address. Reuses matchAddress; `StrictAddress` composes; `AddressCheck.Source`
+  (`AddressSupplied`/`AddressEmbedded`) records origin. Rationale: the embedded
+  address is signed but attacker-chosen, so trusting it unverified is an
+  impersonation vector — making the check a one-liner closes it.
+- **R5 hex address input** → CIP-faithful: `WithAddress` accepts bech32 OR
+  hex-encoded raw bytes ("must accept either format for inputs").
+
+All five §9 decisions now resolved; nothing blocking remains. The design is
+ready to hand to an implementation session. Committed + pushed.
