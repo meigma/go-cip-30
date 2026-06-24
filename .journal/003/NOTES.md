@@ -120,3 +120,54 @@ Status: **paused at Gate 2** awaiting developer approval before Phase 3
 (hardening: typed-error audit, fuzz target, cardano-signer functional oracle,
 negative/robustness tests, resolve the deferred confirmations). No docs/ this
 pass per the brief.
+
+## 2026-06-23 21:54 — Phase 3 implemented (Gate 3 reached)
+Gate 2 approved with a request: manage `cardano-signer` via `proto` like other
+tools (not a raw install).
+
+Proto setup (done by me directly, committed `00c779e`): authored
+`.moon/proto/cardano-signer.toml` mirroring `golangci-lint.toml`, pinned
+`=1.35.0` + registered in `.prototools`. Upstream ships only `mac-x64` (no
+arm64), so macos is pinned to x64 (runs under Rosetta); linux resolves
+arm64/x64. Verified `proto install` + a full keygen→sign→our-Verify round-trip
+(Valid=true, MatchedVia=Payment). Captured the CIP-30 CLI incl. detached+hashed
+(`--hashed --nopayload`).
+
+**Safety incident:** the first Phase-3 workflow run (w3kew21xo) had a fix/cleanup
+agent attempt `rm -f $SCRATCHPAD/*.json` (glob+var) — the developer denied it
+twice. Root cause was MY prompt instruction to "clean up scratch files" (both
+unnecessary — scratchpad is session-temp — and unsafe). I stopped the workflow
+(worktree was pristine, nothing half-applied), removed all cleanup instructions
+from the script, and added a hard "never run rm (no glob, no var, ever)" rule,
+then re-ran (wv4qjxbuh). Lesson: never instruct agents to delete; a leftover
+temp file is harmless, a bad rm is not.
+
+Second run completed. NOTE: the stale editor diagnostics showed a broken tree
+(stray `noaddr_main_tmp.go`/`probe_test.go`, dup decls) — that was a MID-RUN
+snapshot; the fix stage consolidated via `git mv` (no rm) and hoisted shared
+helpers into `helpers_test.go`. Final tree is clean and green. I re-verified
+everything myself: build/vet/gofmt/test/golangci-lint(0) all green; an
+independent 20s live fuzz (5.6M execs, no crasher); and I re-derived the
+detached+hashed fixture through cardano-signer's OWN verify (true for correct
+msg, false for wrong) — confirming non-circularly that our spec-correct raw
+blake2b-224 reconstruction is right. **DESIGN §7 open question resolved.**
+
+Committed `0308964` (+1026, 32 files): `fuzz_test.go` (FuzzVerify, 38 seeds + 23
+committed corpus), `functional_test.go` (reads committed
+`testdata/fixtures/manifest.json`; anti-circular — verdicts from construction +
+cardano-signer oracle, never our code), `scripts/gen-fixtures.sh` (moon
+`gen-fixtures`, fixed throwaway mnemonic, oracle cross-check; safe quoted
+`mktemp -d` trap), `robustness_test.go`, `embedded_address_test.go`,
+`helpers_test.go`, error-audit on `internal/address/address.go` (dropped dead
+`ErrInvalidHex`), `moon.yml` gen-fixtures task. Review: correctness lens clean;
+the one security finding (documented is-hex parity quirk) correctly rejected as
+the resolved R2 design decision; style fixes applied.
+
+Deviation: base-address fixtures skipped (cardano-signer alone yields
+enterprise/reward; a combined base addr needs cardano-cli — unwanted dep). Base
+is covered by the committed reference golden vectors.
+
+Branch `feat/cip30-verification` commits: 02e81b2 (P1), 4dad2d3 (P2), 00c779e
+(proto), 0308964 (P3). All four prior phases' tests stay green.
+
+Status: **paused at Gate 3** (final). On approval: open the single PR to master.
