@@ -30,3 +30,45 @@ Plan (rough, to refine after surveying the current docs):
   `docusaurus`/`mkdocs`, `go-style`) before writing.
 - Update README + docs to document real usage; keep them honest (no invented
   features). Branch off `master` via a Worktrunk worktree; integrate via GitHub PR.
+
+## 2026-06-24 07:04 — Docs written, PR #7 opened
+Planned in plan mode and got three decisions from the developer via
+AskUserQuestion:
+1. **3-page docs** (leanest), each a clean diátaxis type — link out to the CIPs
+   rather than re-deriving them.
+2. **API reference = pkg.go.dev** + tested godoc `Example` functions (no
+   hand-maintained markdown reference to drift).
+3. **Drop the status caveat** — present the library as finished/ready.
+
+Implemented on worktree `docs/library-docs` (`.wt/docs-library-docs`, based off
+`master`):
+- `docs/docs/index.md` (Home) — rewrote: overview, scope, install, quick-start,
+  a short "how it works" linking [CIP-30]/[CIP-8]/[CIP-19] + pkg.go.dev. Dropped
+  the "Status" stub.
+- `docs/docs/verifying.md` (new, how-to) — signature / message / address /
+  embedded address / strict / reuse-parsed / error-vs-invalid / key-hash
+  identity. Imperative, links "why" out to security.
+- `docs/docs/security.md` (new, footgun guide) — server-side verification,
+  self-asserted embedded address, mangled base-address & stake-vs-payment
+  (StrictAddress / MatchedVia==Payment), hashed/hex message conventions,
+  error-vs-invalid (gate on `Result.Valid()`), replay/freshness, network nibble
+  informational. Material admonitions.
+- `docs/mkdocs.yml` — nav extended to the 3 pages.
+- `example_test.go` (new) — `ExampleVerify`, `ExampleVerify_withAddress`,
+  `ExampleParse`, seeded from the golden vectors with `// Output:` blocks.
+- `doc.go` — enriched package overview + pointer to examples/docs site.
+- `README.md` — dropped "early development", added quick-start + real doc links.
+
+Gotchas hit & fixed:
+- **`golangci-lint fmt`** (gofumpt+golines) wrapped the long bech32/Verify call;
+  ran the formatter in-place (the task runs `--diff`).
+- **depguard** forbids `log` in non-main files → examples use
+  `fmt.Println(err); return` instead of `log.Fatal` (error branch is dead code
+  for valid fixtures, so `// Output:` stays deterministic).
+
+Verification: `moon run root:check` green (build/format/lint/test/docs);
+`go test ./...` examples' `// Output:` matches; `moon run docs:build` strict
+passes; cross-page anchors grep-verified in generated HTML.
+
+**PR #7** opened: https://github.com/meigma/go-cip-30/pull/7 (`3b0540a`). CI
+pending (ci / GitHub Pages / Kusari) at checkpoint time.
