@@ -64,11 +64,12 @@ const (
 	hashSize = 28
 	// headerSize is the single header byte that precedes the payload.
 	headerSize = 1
-	// paymentLen is the minimum raw length to carry a payment/stake credential
-	// at raw[1:29]: a header byte plus one 28-byte hash.
+	// paymentLen is the canonical raw length of an address carrying a single
+	// credential at raw[1:29]: a header byte plus one 28-byte hash. It is the exact
+	// length of enterprise and reward addresses.
 	paymentLen = headerSize + hashSize
-	// baseLen is the minimum raw length for a base address carrying both a
-	// payment hash at raw[1:29] and a delegation hash at raw[29:57].
+	// baseLen is the canonical raw length of a base address carrying both a payment
+	// hash at raw[1:29] and a delegation hash at raw[29:57].
 	baseLen = headerSize + 2*hashSize
 )
 
@@ -109,6 +110,11 @@ var (
 	ErrInvalidBech32 = errors.New("address: invalid bech32")
 	// ErrTooShort indicates the raw address was shorter than its header requires.
 	ErrTooShort = errors.New("address: raw address too short for its type")
+	// ErrTrailingBytes indicates the raw address was longer than the canonical
+	// length for its type, carrying extra bytes beyond the credential window. Such
+	// non-canonical padding is rejected rather than silently ignored, since the
+	// fixed credential window would otherwise still satisfy a match.
+	ErrTrailingBytes = errors.New("address: trailing bytes beyond canonical length")
 	// ErrUnsupportedType indicates a Byron or otherwise unknown address type.
 	ErrUnsupportedType = errors.New("address: unsupported address type")
 	// ErrNetworkMismatch indicates the bech32 HRP disagreed with the header
@@ -205,10 +211,12 @@ func Decode(addr string) (*Address, error) {
 // type and returns a typed error (matchable with [errors.Is]) for unsupported
 // types or truncated input — it never panics on hostile input.
 //
-// Only the credential window for the address type is interpreted; the length
-// guards are minimums, so any trailing bytes beyond the credentials are ignored
-// rather than rejected. This tolerates non-canonical padded input without
-// affecting a match, which compares only the fixed 28-byte credential windows.
+// The raw bytes must be the canonical CIP-19 shape for the declared type: base
+// addresses are exactly 57 bytes, enterprise and reward addresses exactly 29.
+// Trailing bytes beyond the canonical length are rejected with ErrTrailingBytes
+// rather than ignored, so that non-canonical padded input cannot satisfy a match
+// on the fixed credential window. Pointer addresses (types 4-5) and Byron (type
+// 8) are rejected as unsupported.
 func Parse(raw []byte) (*Address, error) {
 	if len(raw) < headerSize {
 		return nil, fmt.Errorf("%w: empty raw address", ErrTooShort)
@@ -233,15 +241,21 @@ func Parse(raw []byte) (*Address, error) {
 		if err := addr.fillBase(); err != nil {
 			return nil, err
 		}
-	case TypePointerKey, TypePointerScript,
-		TypeEnterpriseKey, TypeEnterpriseScript:
-		if err := addr.fillPaymentOnly(); err != nil {
+	case TypeEnterpriseKey, TypeEnterpriseScript:
+		if err := addr.fillEnterprise(); err != nil {
 			return nil, err
 		}
 	case TypeRewardKey, TypeRewardScript:
 		if err := addr.fillReward(); err != nil {
 			return nil, err
 		}
+	case TypePointerKey, TypePointerScript:
+		// A pointer address carries a chain pointer (three variable-length naturals)
+		// instead of an inline stake key hash, so only its payment credential is ever
+		// matchable — identical to an enterprise address. Rather than parse and
+		// canonical-validate attacker-controlled variable-length pointer bytes for a
+		// type CIP-30 wallets do not produce, reject it as unsupported, like Byron.
+		return nil, fmt.Errorf("%w: pointer (type %d)", ErrUnsupportedType, addrType)
 	case TypeByron:
 		return nil, fmt.Errorf("%w: Byron (type 8)", ErrUnsupportedType)
 	default:
@@ -251,25 +265,40 @@ func Parse(raw []byte) (*Address, error) {
 	return addr, nil
 }
 
+// checkLen verifies the raw address is exactly want bytes — the canonical length
+// for its type. Shorter input is ErrTooShort; longer input carries trailing bytes
+// beyond the canonical shape and is ErrTrailingBytes. Enforcing an exact length
+// rather than a minimum rejects non-canonical padded addresses, whose extra bytes
+// would otherwise be ignored while the fixed credential window still matched.
+func checkLen(raw []byte, want int) error {
+	switch {
+	case len(raw) < want:
+		return fmt.Errorf("%w: address has %d bytes, want %d", ErrTooShort, len(raw), want)
+	case len(raw) > want:
+		return fmt.Errorf("%w: address has %d bytes, want %d", ErrTrailingBytes, len(raw), want)
+	}
+	return nil
+}
+
 // fillBase populates both credentials of a base address (types 0-3): payment at
 // raw[1:29] and delegation at raw[29:57]. The payment script-ness follows the
 // odd/even type rule; the delegation script-ness follows the type's high bit
 // within the base group (types 2,3 carry a stake script).
 func (a *Address) fillBase() error {
-	if len(a.Raw) < baseLen {
-		return fmt.Errorf("%w: base address has %d bytes, want >= %d", ErrTooShort, len(a.Raw), baseLen)
+	if err := checkLen(a.Raw, baseLen); err != nil {
+		return err
 	}
 	a.Payment = Credential{Hash: a.Raw[headerSize:paymentLen], IsScript: paymentIsScript(a.Type)}
 	a.Stake = Credential{Hash: a.Raw[paymentLen:baseLen], IsScript: baseStakeIsScript(a.Type)}
 	return nil
 }
 
-// fillPaymentOnly populates the payment credential of an enterprise or pointer
-// address (types 4-7) at raw[1:29]. These types carry no inline stake key hash,
-// so Stake is left absent.
-func (a *Address) fillPaymentOnly() error {
-	if len(a.Raw) < paymentLen {
-		return fmt.Errorf("%w: address has %d bytes, want >= %d", ErrTooShort, len(a.Raw), paymentLen)
+// fillEnterprise populates the payment credential of an enterprise address (types
+// 6-7) at raw[1:29]. These types carry no inline stake key hash, so Stake is left
+// absent.
+func (a *Address) fillEnterprise() error {
+	if err := checkLen(a.Raw, paymentLen); err != nil {
+		return err
 	}
 	a.Payment = Credential{Hash: a.Raw[headerSize:paymentLen], IsScript: paymentIsScript(a.Type)}
 	return nil
@@ -278,8 +307,8 @@ func (a *Address) fillPaymentOnly() error {
 // fillReward populates the stake credential of a reward address (types 14-15) at
 // raw[1:29]. A reward address has no payment part, so Payment is left absent.
 func (a *Address) fillReward() error {
-	if len(a.Raw) < paymentLen {
-		return fmt.Errorf("%w: reward address has %d bytes, want >= %d", ErrTooShort, len(a.Raw), paymentLen)
+	if err := checkLen(a.Raw, paymentLen); err != nil {
+		return err
 	}
 	a.Stake = Credential{Hash: a.Raw[headerSize:paymentLen], IsScript: a.Type == TypeRewardScript}
 	return nil

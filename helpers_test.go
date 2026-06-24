@@ -33,6 +33,21 @@ func sign1WithSig(sigHex string) string {
 	return prefix + bstrHeader(len(sigHex)/2) + sigHex
 }
 
+// sign1WithEmbeddedAddress builds a hex COSE_Sign1 whose protected header is
+// {alg:-8, "address": <rawAddrHex>}, with an empty payload (h”) and a zero
+// 64-byte signature. The signature never verifies; the helper exists to drive the
+// embedded-address decode path with an arbitrary (often non-canonical) address.
+// The protected-header byte-string length is computed from the address so the
+// CBOR stays well-formed as the address length varies.
+func sign1WithEmbeddedAddress(rawAddrHex string) string {
+	// protected map: a2 0127 67"address" <bstr addr>. "address" is a 7-byte text
+	// string (0x67); the address itself is a CBOR byte string.
+	protected := "a201276761646472657373" + bstrHeader(len(rawAddrHex)/2) + rawAddrHex
+	// 84 <bstr protected> a0 40 <bstr 64-byte sig>
+	return "84" + bstrHeader(len(protected)/2) + protected +
+		"a0" + "40" + bstrHeader(64) + zeros(2*64)
+}
+
 // keyWithX builds a hex COSE_Key whose x value is the given hex bytes, used to
 // seed off-by-one public-key lengths (31/33 bytes).
 func keyWithX(xHex string) string {

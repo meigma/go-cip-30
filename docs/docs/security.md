@@ -71,6 +71,22 @@ This is the subtlest footgun in the library:
     `cip30.CredentialPayment`. `StrictAddress` has no effect on enterprise or
     reward addresses, whose single credential is unambiguous.
 
+## Addresses must be canonical
+
+The decoder accepts only canonical CIP-19 byte shapes. Base addresses are exactly
+57 bytes and enterprise and reward addresses exactly 29; trailing bytes beyond the
+credential window are rejected rather than ignored. Pointer addresses (CIP-19
+types 4–5) and Byron addresses are not supported.
+
+!!! note "A non-canonical shape is a decode error, not a match"
+
+    A supplied or embedded address with extra trailing bytes, or a pointer header
+    carrying no chain pointer, would otherwise expose the signer's own key-hash
+    credential under a non-canonical encoding. `go-cip-30` rejects these while
+    decoding, so `Verify` returns a non-nil `error` (wrapping `ErrDecodeAddress`)
+    rather than a verdict — see
+    [Error is not the same as invalid](#error-is-not-the-same-as-invalid).
+
 ## Messages: the hashed and hex conventions
 
 `WithMessage` follows the reference verifier's conventions, and they interact in

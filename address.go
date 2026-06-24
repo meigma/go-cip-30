@@ -70,6 +70,9 @@ const (
 	// AddressBase is a base address (CIP-19 types 0-3): payment + delegation.
 	AddressBase AddressType = iota
 	// AddressPointer is a pointer address (types 4-5): payment + chain pointer.
+	// Pointer addresses are rejected as unsupported during decoding (see
+	// internal/address), so a successful check never reports this category; it is
+	// retained for API stability and completeness of the CIP-19 vocabulary.
 	AddressPointer
 	// AddressEnterprise is an enterprise address (types 6-7): payment only.
 	AddressEnterprise
