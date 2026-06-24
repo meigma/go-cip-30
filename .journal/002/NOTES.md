@@ -212,3 +212,16 @@ doubles as an oracle. Updated DESIGN §11.3 (fixture matrix via cardano-signer),
 
 Did NOT install/run it this session (design-only scope) — offered to prototype
 a starter fixture set as an optional next step.
+
+## 2026-06-23 19:01 — Close
+Session closed. Design-only — **no implementation work, no PR, no repo changes**;
+the deliverable is `.journal/002/DESIGN.md` on `journal/jmgilman`. `master` is
+untouched (verified `git ls-files .journal` is empty there). Phase 1 (land work)
+was a no-op.
+
+Handoff: the CIP-30 design proposal is complete with all open questions resolved
+— `.journal/002/DESIGN.md` is the entry point for the implementation session.
+Wrote `SUMMARY.md`, flipped the `INDEX.md` row to complete, and added a durable
+pointer + decided dependency set to `TECH_NOTES.md`. Next session: implement the
+`cip30` library from the design's milestones; optionally generate `cardano-signer`
+fixtures first.
