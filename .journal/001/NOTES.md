@@ -63,3 +63,23 @@ Kusari pending). 35 files changed, +103/-2170.
 
 Next: confirm CI passes, then squash-merge the PR. Design doc + actual CIP-30
 API are the follow-up work.
+
+## 2026-06-23 17:23 — Close
+Session closed. All work merged to `master` (now at the PR #5 squash commit) and
+both implementation worktrees removed.
+
+Landed after the rebrand checkpoint:
+- Dual-licensed the repo (Apache-2.0 + MIT, Rust-style split LICENSE files,
+  holder "Meigma"); folded into PR #4 before it merged.
+- Added `moon run setup-ref` — idempotent shallow clone of
+  `cardano-foundation/cardano-verify-datasignature` and `cardano-foundation/CIPs`
+  into the gitignored `ref/` folder; documented in AGENTS.md "Reference
+  Material" (PR #5).
+
+Merged PRs: #4 (rebrand + dual license), #5 (setup-ref recipe). Local `master`
+fast-forwarded to `dcb9388`; `feat/rebrand-cip30` and `feat/ref-impl` worktrees/
+branches removed.
+
+Hand-off / open threads (see SUMMARY.md): apply `repository-settings.toml` to the
+live repo via `configure_github_repo.py apply`; next session writes the design
+doc + real CIP-30 API in `package cip30`, using the cloned `ref/` material.
