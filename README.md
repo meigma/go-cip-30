@@ -1,15 +1,12 @@
 # go-cip-30
 
-`go-cip-30` is a Go library for implementing the [CIP-30][cip30] Cardano
-dApp–wallet bridge in web2 backend systems.
+`go-cip-30` verifies [CIP-30][cip30] data signatures so a Cardano wallet's
+`api.signData()` result can be used for authentication and identification in a
+Go backend.
 
-It targets backend API builders who integrate with Cardano wallet extensions
-over CIP-30. The scope is intentionally narrow: the tools needed to **validate
-CIP-30 data for authentication and identification**. It is not an HTTP framework
-or middleware — you bring the transport, this library handles CIP-30.
-
-> **Status:** early development. The public API is still taking shape and may
-> change before the first tagged release.
+The scope is intentionally narrow: validating CIP-30 data. It is not an HTTP
+framework or middleware — you bring the transport, this library handles the
+cryptography and the Cardano address logic.
 
 ## Install
 
@@ -17,16 +14,40 @@ or middleware — you bring the transport, this library handles CIP-30.
 go get github.com/meigma/go-cip-30
 ```
 
-```go
-import "github.com/meigma/go-cip-30"
-```
-
 The package is imported as `cip30`.
+
+## Quick start
+
+A wallet returns a data signature as two hex-encoded CBOR strings. Verify the
+signature and the message it was meant to sign:
+
+```go
+import cip30 "github.com/meigma/go-cip-30"
+
+ds := cip30.DataSignature{Signature: sigHex, Key: keyHex}
+
+result, err := cip30.Verify(ds, cip30.WithMessage([]byte("Sign in to Example")))
+if err != nil {
+    return err // unprocessable input: bad hex/CBOR, wrong lengths, etc.
+}
+if !result.Valid() {
+    return errAuthFailed // signature did not verify, or a check failed
+}
+
+// result.KeyHash is the signer's stable identity (blake2b-224 of the key).
+```
 
 ## Documentation
 
-Project documentation is published from the `docs/` MkDocs site. API reference
-and usage guides will be added as the API stabilizes.
+- [Project documentation](https://meigma.github.io/go-cip-30/) — usage guide and
+  security considerations.
+- [API reference](https://pkg.go.dev/github.com/meigma/go-cip-30) — full godoc
+  with runnable examples.
+
+Using a signature as an identity has sharp edges (self-asserted addresses,
+stake-vs-payment matches, replay). Read the
+[security guide](https://meigma.github.io/go-cip-30/security/) before going to
+production.
 
 ## Development
 
