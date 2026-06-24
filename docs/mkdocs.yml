@@ -35,6 +35,8 @@ theme:
 
 nav:
   - Home: index.md
+  - Verifying data signatures: verifying.md
+  - Security: security.md
 
 plugins:
   - search
