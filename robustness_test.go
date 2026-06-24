@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,6 +16,15 @@ import (
 // the bech32 yet reject the address because the HRP disagrees with the header
 // nibble. It is shared with the FuzzVerify seed corpus.
 const addrNetworkMismatch = "addr1vqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqkl09mf"
+
+func encodeRawAddress(t *testing.T, hrp string, raw []byte) string {
+	t.Helper()
+	conv, err := bech32.ConvertBits(raw, 8, 5, true)
+	require.NoError(t, err)
+	encoded, err := bech32.Encode(hrp, conv)
+	require.NoError(t, err)
+	return encoded
+}
 
 // TestVerifyRejectsNetworkMismatch pins the network-mismatch reject path
 // deterministically: a bech32 address whose human-readable prefix implies one
@@ -29,6 +39,40 @@ func TestVerifyRejectsNetworkMismatch(t *testing.T) {
 	require.ErrorIs(t, err, ErrDecodeAddress,
 		"a bech32 HRP that disagrees with the header network must error")
 	assert.Nil(t, result, "no Result accompanies a processing error")
+}
+
+// TestVerifyRejectsHRPTypeMismatch prevents a reward/stake payload from being
+// relabeled as a payment address before the address ownership verdict.
+func TestVerifyRejectsHRPTypeMismatch(t *testing.T) {
+	sig, err := Parse(DataSignature{Signature: sigStakePlain, Key: keyStake})
+	require.NoError(t, err)
+	rewardRaw := append([]byte{0xe1}, sig.KeyHash()...)
+
+	tests := []struct {
+		name string
+		addr string
+	}{
+		{
+			name: "rejects reward payload under payment hrp",
+			addr: encodeRawAddress(t, "addr", rewardRaw),
+		},
+		{
+			name: "rejects reward payload under unknown hrp",
+			addr: encodeRawAddress(t, "notcardano", rewardRaw),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := Verify(
+				DataSignature{Signature: sigStakePlain, Key: keyStake},
+				WithAddress(tc.addr),
+				StrictAddress(),
+			)
+			require.ErrorIs(t, err, ErrDecodeAddress)
+			assert.Nil(t, result, "no Result accompanies an HRP class mismatch")
+		})
+	}
 }
 
 // TestVerifyRejectsUnsupportedAddressType asserts an explicit WithAddress carrying

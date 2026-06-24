@@ -114,6 +114,9 @@ var (
 	// ErrNetworkMismatch indicates the bech32 HRP disagreed with the header
 	// network nibble (e.g. a "stake_test" prefix over a mainnet header byte).
 	ErrNetworkMismatch = errors.New("address: bech32 prefix disagrees with header network")
+	// ErrHRPMismatch indicates the bech32 HRP disagreed with the address type
+	// class (e.g. an "addr" prefix over a reward/stake address).
+	ErrHRPMismatch = errors.New("address: bech32 prefix disagrees with address type")
 )
 
 // Credential is one part of an address — its payment or stake credential.
@@ -179,7 +182,7 @@ func Decode(addr string) (*Address, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := checkHRPNetwork(hrp, parsed.Network); err != nil {
+		if err := checkHRP(hrp, parsed); err != nil {
 			return nil, err
 		}
 		return parsed, nil
@@ -311,29 +314,42 @@ func decodeBech32(addr string) (string, []byte, error) {
 	return hrp, raw, nil
 }
 
-// checkHRPNetwork verifies the bech32 prefix's implied network matches the
-// header nibble. The "stake"/"stake_test" prefixes are reward addresses and the
-// "addr"/"addr_test" prefixes are payment addresses; "_test" means testnet.
+// checkHRP verifies the bech32 prefix's implied network and address class match
+// the decoded address. The "stake"/"stake_test" prefixes are reward addresses
+// and the "addr"/"addr_test" prefixes are payment addresses; "_test" means
+// testnet.
 //
 // This guards against an address whose human-readable prefix claims one network
-// while its header byte encodes another — an inconsistency we reject rather than
-// silently trust the header over the prefix the user saw.
-func checkHRPNetwork(hrp string, network Network) error {
+// or address class while its header byte encodes another — an inconsistency we
+// reject rather than silently trust the header over the prefix the user saw.
+func checkHRP(hrp string, addr *Address) error {
 	var want Network
+	var wantReward bool
 	switch hrp {
-	case hrpMainnetPayment, hrpMainnetStake:
+	case hrpMainnetPayment:
 		want = Mainnet
-	case hrpTestnetPayment, hrpTestnetStake:
+	case hrpTestnetPayment:
 		want = Testnet
+	case hrpMainnetStake:
+		want = Mainnet
+		wantReward = true
+	case hrpTestnetStake:
+		want = Testnet
+		wantReward = true
 	default:
-		// An unrecognized HRP is not a network we can cross-check; accept the
-		// header's own nibble rather than guessing. Unknown HRPs that are not real
-		// Cardano prefixes will still fail elsewhere (e.g. wrong payload length).
-		return nil
+		return fmt.Errorf("%w: unsupported bech32 prefix %q", ErrInvalidBech32, hrp)
 	}
-	if want != network {
+	if want != addr.Network {
 		return fmt.Errorf("%w: prefix %q implies network %d, header says %d",
-			ErrNetworkMismatch, hrp, want, network)
+			ErrNetworkMismatch, hrp, want, addr.Network)
+	}
+	if wantReward != isReward(addr.Type) {
+		return fmt.Errorf("%w: prefix %q incompatible with address type %d",
+			ErrHRPMismatch, hrp, addr.Type)
 	}
 	return nil
+}
+
+func isReward(t Type) bool {
+	return t == TypeRewardKey || t == TypeRewardScript
 }
