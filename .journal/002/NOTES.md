@@ -142,3 +142,30 @@ fallback (parity vs strict); accept hex addresses too.
 
 Next: review the draft with the user; refine per feedback. Doc is the resource
 for future implementation sessions — not committed to master.
+
+## 2026-06-23 18:20 — Design refinement: address result + strict mode
+User reviewed the base-address stake-key fallback (verified concretely: the
+reference's "payment address" vector signs with the STAKE key —
+blake2b224(b89526…)=18987c…, which is the *delegation* part of base addr
+`addr1qxtu4w2rq…`, payment part 97cab943…). User's call, folded into DESIGN.md:
+1. **Default = reference parity** (base address satisfied by payment OR stake
+   credential). Add **`StrictAddress()`** that makes a stake-only match FAIL —
+   strict tightens, rather than the permissive path being opt-in.
+2. **Structured output** so the receiver knows exactly what was verified.
+
+API consequence: `Verify` now returns **`(*Result, error)`** (was `error`).
+`error` = unprocessable input only; verdict + detail live in `Result`:
+- `Result{ SignatureValid, Message *MessageCheck, Address *AddressCheck,
+  PublicKey, KeyHash }`, with `Valid()` = AND of requested checks.
+- `AddressCheck{ Matched, MatchedVia (Payment|Stake|None), Strict, Type,
+  Network }` — `MatchedVia` discloses which credential matched.
+Updated §5 (API + Result types + StrictAddress), §7 (algorithm populates
+Result), §8 (matchAddress returns AddressCheck; fixed credential/type table —
+deleg key hash only in types 0/1; pointer/enterprise payment-only), §9
+(resolved R1 return-shape and R4 fallback; 3 decisions still open), §10
+(security: payment vs delegation are different claims), §11 (golden tests assert
+MatchedVia + strict failure).
+
+Still-open decisions (impl-time): pre-hashed message input; whether to check the
+embedded protected-header address against the key; accept hex addresses too.
+Committed + pushed.

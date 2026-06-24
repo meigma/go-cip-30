@@ -177,9 +177,12 @@ and `internal/address` as concrete packages with small surfaces.
 
 ## 5. Public API (proposal)
 
-Idiomatic Go shaped by the spec; `nil` error means "verified." Two levels: a
-one-shot `Verify` for the common case, and `Parse` for callers who need the
-authenticated identity (key / address / payload) afterward.
+Idiomatic Go shaped by the spec. `Verify` returns a structured **`Result`** that
+reports *exactly what was checked and how it matched* — not just yes/no — so an
+auth backend can apply its own policy (e.g. "I only accept a payment-key match").
+The `(*Result, error)` split keeps "couldn't process the input" (`error`)
+separate from "processed; here is the verdict" (`Result`). `Parse` is the lower
+level for callers who want the authenticated identity (key / address / payload).
 
 ```go
 package cip30
@@ -191,27 +194,71 @@ type DataSignature struct {
     Key       string // hex(cbor<COSE_Key>)
 }
 
-// Verify reports whether sig is cryptographically valid and, when the matching
-// options are supplied, whether the signed payload equals an expected message
-// and whether the signing key matches a Cardano address.
-//
-// Returns nil when every requested check passes. A failed check returns a typed
-// error (ErrSignatureInvalid / ErrMessageMismatch / ErrAddressMismatch) that is
-// inspectable with errors.Is. Malformed input (bad hex, bad CBOR, wrong key or
-// signature length, unsupported address) returns a wrapped parse error.
-func Verify(sig DataSignature, opts ...VerifyOption) error
+// Verify checks the Ed25519 signature and, when the matching options are given,
+// the payload message and the signing address. It returns a Result describing
+// each check performed. A non-nil error means the input could not be processed
+// (bad hex/CBOR, wrong key/signature length, unsupported address) — distinct
+// from a check that ran and failed, which is reported in the Result.
+func Verify(sig DataSignature, opts ...VerifyOption) (*Result, error)
+
+// Result reports what Verify checked. Use Valid for the overall verdict; inspect
+// the sub-results to learn how each check resolved.
+type Result struct {
+    SignatureValid bool              // the Ed25519 signature verified
+    Message        *MessageCheck     // non-nil iff WithMessage was supplied
+    Address        *AddressCheck     // non-nil iff WithAddress was supplied
+    PublicKey      ed25519.PublicKey // the 32-byte key from the COSE_Key
+    KeyHash        []byte            // blake2b-224(PublicKey): the 28-byte credential
+}
+
+// Valid is the overall verdict: signature valid AND every requested check passed.
+func (r *Result) Valid() bool
+
+type MessageCheck struct {
+    Matched bool // payload equals the expected message
+    Hashed  bool // payload was blake2b-224(message) rather than the raw message
+}
+
+type AddressCheck struct {
+    Matched    bool        // satisfied under the active (default / strict) policy
+    MatchedVia Credential  // which credential the key hash matched (or None)
+    Strict     bool        // whether StrictAddress was in force
+    Type       AddressType // base / enterprise / pointer / reward
+    Network    Network     // mainnet / testnet
+}
+
+// Credential names which part of an address the signing key hash matched.
+type Credential uint8
+
+const (
+    CredentialNone    Credential = iota // nothing matched
+    CredentialPayment                   // matched the payment key hash
+    CredentialStake                     // matched the delegation/stake key hash
+)
 
 type VerifyOption func(*verifyConfig)
 
 // WithMessage checks the signed payload against the expected plaintext, hashing
 // it with blake2b-224 iff the COSE_Sign1 sets unprotected "hashed": true. When
 // the COSE_Sign1 carries no embedded payload (detached), the message is used to
-// reconstruct the signed bytes so the signature check still runs.
+// reconstruct the signed bytes so the signature check still runs (and the
+// message is then proven by the signature itself).
 func WithMessage(message []byte) VerifyOption
 
-// WithAddress checks that blake2b-224(publicKey) matches the key-hash credential
-// of the given bech32 address (addr1/addr_test1/stake1/stake_test1).
-func WithAddress(bech32Addr string) VerifyOption
+// WithAddress checks that blake2b-224(publicKey) matches a key-hash credential of
+// the given address (bech32 addr/stake, or raw hex bytes). DEFAULT policy mirrors
+// the reference verifier: for a base address EITHER the payment OR the
+// delegation (stake) credential is accepted, and Result.Address.MatchedVia
+// reports which. Reward (stake) addresses match only their stake key; enterprise
+// addresses only their payment key.
+func WithAddress(addr string) VerifyOption
+
+// StrictAddress tightens WithAddress: a base address must match its PAYMENT
+// credential — a stake-only match becomes a failure (Matched=false,
+// MatchedVia=CredentialStake, Strict=true). This proves control of the address's
+// funds, not merely its delegation. No effect on enterprise/reward addresses,
+// whose only key-hash credential is unambiguous.
+func StrictAddress() VerifyOption
 ```
 
 For identification use cases (auth backends usually want *who* signed, not just
@@ -230,27 +277,27 @@ type Signature struct {
     // unexported: raw protected bytes, signature, decoded protected map
 }
 
-func (s *Signature) Verify() error                    // signature only
-func (s *Signature) VerifyMessage(message []byte) error
-func (s *Signature) MatchesAddress(bech32Addr string) (bool, error)
+func (s *Signature) Verify() bool                                  // signature only
+func (s *Signature) VerifyMessage(message []byte) *MessageCheck
+func (s *Signature) MatchesAddress(addr string, opts ...VerifyOption) (*AddressCheck, error)
 
 // KeyHash returns blake2b-224(PublicKey) — the 28-byte credential to compare
 // against an address or persist as a stable identity.
 func (s *Signature) KeyHash() []byte
 ```
 
-`Verify(sig, opts...)` is sugar over `Parse` + the methods. Both are part of the
-proposal; the one-shot is the headline, `Parse` is the power tool.
+`Verify(sig, opts...)` is sugar over `Parse` + these methods. The one-shot is the
+headline; `Parse` is the power tool.
 
 ### Alternatives considered (decide during implementation)
 
-- **`(bool, error)`** instead of error-only — separates "didn't match" from
-  "couldn't process." Rejected as the default because it invites
-  `if ok, _ := Verify(...)` and silently dropping decode errors; typed errors +
-  `errors.Is` give the same information more safely. (Could still offer it.)
+- **Error-only `Verify(...) error`** (typed sentinels per failed check) —
+  simplest, but it cannot express "matched, but via the *stake* credential,"
+  which is exactly the transparency we want. Rejected in favor of `Result`.
+- **`(bool, error)`** — same transparency gap, and invites
+  `if ok, _ := Verify(...)` that silently drops decode errors. Rejected.
 - **A `Verifier` struct** holding expected message/address — heavier than
-  functional options for a stateless one-call operation. Options are lighter and
-  extend cleanly.
+  functional options for a stateless one-call operation.
 
 ## 6. Constants & domain types
 
@@ -325,24 +372,36 @@ Verify(sig, opts):
   require keyMap[kty]==OKP, keyMap[alg]==EdDSA, keyMap[crv]==Ed25519
   x ← keyMap[x(-2)]                        // require len 32
 
-  # ---- 1. signature (always) ----
-  payloadForSig ← payload
-  if cfg.message != nil and empty(payload):     # detached payload → rebuild from message
-      payloadForSig ← hashed ? blake2b224(cfg.message) : cfg.message
-  sigStruct ← cborMarshal(["Signature1", protectedRaw, h'', payloadForSig])
-  if not ed25519.Verify(x, sigStruct, signature): return ErrSignatureInvalid
+  res ← &Result{ PublicKey: x, KeyHash: blake2b224(x) }
 
-  # ---- 2. message check (optional, only if a payload is embedded) ----
-  if cfg.message != nil and not empty(payload):
-      want ← hashed ? blake2b224(cfg.message) : cfg.message
-      if not bytesEqual(payload, want): return ErrMessageMismatch
+  # ---- 1. signature (always) ----
+  detached ← cfg.message != nil and empty(payload)   # nil or zero-length payload
+  payloadForSig ← detached ? (hashed ? blake2b224(cfg.message) : cfg.message) : payload
+  sigStruct ← cborMarshal(["Signature1", protectedRaw, h'', payloadForSig])
+  res.SignatureValid ← ed25519.Verify(x, sigStruct, signature)
+
+  # ---- 2. message check (optional) ----
+  if cfg.message != nil:
+      if detached:                                   # message IS the signed payload…
+          res.Message ← { Hashed: hashed, Matched: res.SignatureValid }  # …proven by the sig
+      else:
+          want ← hashed ? blake2b224(cfg.message) : cfg.message
+          res.Message ← { Hashed: hashed, Matched: bytesEqual(payload, want) }
 
   # ---- 3. address check (optional) ----
   if cfg.address != "":
-      if not matchAddress(cfg.address, blake2b224(x)): return ErrAddressMismatch
+      res.Address ← matchAddress(cfg.address, res.KeyHash, cfg.strict)   # see §8
 
-  return nil
+  return res, nil
+
+# Result.Valid() = SignatureValid
+#                  && (Message == nil || Message.Matched)
+#                  && (Address == nil || Address.Matched)
 ```
+
+Malformed input — bad hex, bad CBOR, `len(arr) != 4`, `len(x) != 32`,
+`len(sig) != 64`, unsupported/undecodable address — returns `(nil, wrapped
+error)` from the decode/parse stage, never a `Result`.
 
 Notes:
 
@@ -357,36 +416,42 @@ Notes:
 ## 8. Address matching (CIP-19)
 
 ```
-matchAddress(bech32Addr, keyHash[28]) bool:
-  hrp, data5 ← bech32.DecodeNoLimit(bech32Addr)
-  raw ← convertBits(data5, 5→8)
+matchAddress(addr, keyHash[28], strict) AddressCheck:
+  raw    ← bech32DecodeNoLimit(addr) ∘ convertBits(5→8)   # or hex-decode if raw hex
   header ← raw[0]; type ← header>>4; net ← header & 0x0f
-  # network sanity: hrp prefix (addr_test/stake_test ⇒ testnet) must agree with net nibble
-  switch type:
-    case 0..5:  payment ← raw[1:29]                 # base / pointer: payment credential
-                if type is even (key-hash) and payment==keyHash: return true
-                # reference fallback: allow the signing key to be the STAKE key of a base addr
-                if type in {0,1,2,3} (has deleg): stake ← raw[29:57]
-                   return stake==keyHash
-                return false
-    case 6,7:   payment ← raw[1:29]                 # enterprise (no deleg)
-                return type==6 and payment==keyHash
-    case 14,15: stake ← raw[1:29]                   # reward
-                return type==14 and stake==keyHash
-    case 8:     return false                        # Byron — unsupported
-    default:    return false
+  ac     ← { Type: type, Network: net, Strict: strict, MatchedVia: None }
+  # network sanity: addr_test/stake_test HRP ⇒ net==0; addr/stake ⇒ net==1
+
+  # which credentials are KEY hashes (per the CIP-19 type table)?
+  #   payment key hash @ raw[1:29]   for types 0,2,4,6   (odd payment types ⇒ script)
+  #   stake   key hash @ raw[1:29]   for type 14         (15 ⇒ script)
+  #   deleg   key hash @ raw[29:57]  for types 0,1       (2,3 ⇒ script; 4,5 ⇒ pointer; 6,7 ⇒ none)
+
+  if   type in {0,2,4,6} and raw[1:29]  == keyHash: ac.MatchedVia ← Payment
+  elif type == 14        and raw[1:29]  == keyHash: ac.MatchedVia ← Stake   # reward: stake IS the key
+  elif type in {0,1}     and raw[29:57] == keyHash: ac.MatchedVia ← Stake   # base delegation key
+
+  ac.Matched ←  (ac.MatchedVia == Payment)
+             or (ac.MatchedVia == Stake and type == 14)                    # reward: its only key
+             or (ac.MatchedVia == Stake and type in {0,1} and not strict)  # base fallback
+  return ac
 ```
 
-- Credential is `blake2b-224(x)` (28 bytes) — the `PaymentKeyHash` / `StakeKeyHash`
-  from CIP-19.
-- **Script-hash credentials** (odd Shelley payment types, type 15) can never
-  equal a key hash → no match (analogous to CIP-30 `AddressNotPK`).
-- **Reference parity quirk (flag for decision):** for a base address the
-  reference compares the payment part but *falls back* to the stake part, letting
-  a stake-key signature satisfy a base address. Reproduced above for parity;
-  consider making it strict or opt-in (see §9).
-- Network is taken from the bech32 HRP (`addr`/`stake` vs `_test`); we should
-  *also* assert it agrees with the header nibble and reject inconsistent inputs.
+- Credential is `blake2b-224(x)` (28 bytes) — the `PaymentKeyHash` /
+  `StakeKeyHash` from CIP-19.
+- **Script-hash credentials** (odd Shelley payment types; the delegation part of
+  types 2/3; type 15) can never equal a key hash → `MatchedVia=None` (analogous
+  to CIP-30 `AddressNotPK`).
+- **Base-address stake fallback (default ON, reference parity):** when the key is
+  the *delegation* key of a base address (types 0/1) rather than its payment key,
+  the match still succeeds and `MatchedVia=Stake` records it. `StrictAddress`
+  flips that to `Matched=false`. Reward addresses are unaffected — their sole
+  key-hash credential *is* the stake key, so `MatchedVia=Stake` always counts
+  there.
+- **Pointer (4/5) and enterprise (6/7)** carry no inline delegation key hash, so
+  only their (even-type) payment key can match — no fallback applies.
+- Network is taken from the HRP; assert it agrees with the header nibble and
+  reject inconsistent inputs.
 
 ## 9. Edge cases & open decisions
 
@@ -401,17 +466,29 @@ wrong key/message/address). Port them verbatim (§10).
 | 2 | Detached/empty/null payload + message | reconstruct payload from message; sig check is the message check |
 | 3 | `hashed=true` | compare/sign over `blake2b-224(message)` |
 | 4 | Enterprise (type 6) | match payment key-hash only |
-| 5 | Base (type 0) | match payment, fallback to stake (parity) |
-| 6 | Reward (type 14) | match stake key-hash |
+| 5 | Base (type 0/1) | match payment; stake fallback by default (`MatchedVia=Stake`), failed under `StrictAddress` |
+| 6 | Reward (type 14) | match stake key-hash (`MatchedVia=Stake`, always counts) |
 | 7 | Testnet vs mainnet | HRP + header nibble |
 | 8 | Wrong key / message / address | typed error (not a decode error) |
 | 9 | Byron (type 8) / script credential | unsupported → typed error / no match |
 | 10 | Malformed: bad hex, bad CBOR, len≠4, x≠32, sig≠64 | wrapped parse error, never panic |
 
-**Open decisions (resolve while implementing):**
+**Resolved (session 002):**
 
-1. **Return shape** — error-only (recommended) vs `(bool, error)`. Pick one,
-   keep it consistent across `Verify` and the methods.
+- **R1. Return shape** → `Verify(...) (*Result, error)`. A structured `Result`
+  (overall `Valid()` plus per-check detail) beats error-only/`(bool, error)`
+  because it can report *how* the address matched. `error` is reserved for
+  unprocessable input. Keep this shape consistent across `Verify` and the
+  `Signature` methods.
+- **R4. Base-address stake-key fallback** → **default = reference parity** (a
+  base address is satisfied by its payment *or* delegation key), with
+  `Result.Address.MatchedVia` disclosing which. **`StrictAddress()`** makes a
+  stake-only match fail for callers who require proof of payment-key control.
+  This pairs the transparent result (decide-for-yourself) with an opt-in hard
+  guarantee. Confirm `MatchedVia` semantics against real wallet output.
+
+**Still open (resolve while implementing):**
+
 2. **`hashed` + pre-hashed message** — the reference accepts *either* the raw
    message (it hashes) *or* an already-hex blake2b-224 digest (used as-is, via a
    `!isHex` guard). Proposal: `WithMessage([]byte)` always means raw plaintext
@@ -419,15 +496,11 @@ wrong key/message/address). Port them verbatim (§10).
    option only if a real caller needs it. Decide.
 3. **Embedded protected-header `address`** — it is signed (tamper-evident) but
    the reference never checks it against the key. Proposal: expose it on
-   `Signature.Address`, and optionally offer a check that
-   `blake2b-224(x)` matches the embedded address (useful for auth: see §11).
-4. **Base-address stake-key fallback** — parity vs strict. Strict is safer for
-   identification ("this is the *payment* key of this address"); parity matches
-   the reference. Lean: implement strict-by-default with the fallback behind an
-   option, but confirm against real wallet output first.
+   `Signature.Address`, and optionally offer a check that `blake2b-224(x)`
+   matches the embedded address (useful for auth: see §10).
 5. **Address input forms** — CIP-30 says addresses may be bech32 *or* hex bytes.
-   `WithAddress` should likely accept both (bech32 primary; raw hex as a
-   convenience), mirroring CIP-30's "accept either format for inputs."
+   `WithAddress` should accept both (bech32 primary; raw hex as a convenience),
+   mirroring CIP-30's "accept either format for inputs."
 
 ## 10. Security considerations
 
@@ -440,6 +513,12 @@ supplying a crafted `DataSignature`.
   only what the signer *claimed*. Auth callers must use `WithAddress` (or
   `MatchesAddress`) against an address they independently expect — never trust
   the embedded address alone.
+- **Payment vs delegation control are different claims.** A base address's
+  payment and stake parts may belong to different parties (CIP-19 "mangled"
+  addresses). A default (`MatchedVia=Stake`) match proves control of the
+  delegation key, *not* the funds. `Result.Address.MatchedVia` exposes which
+  credential matched so the caller can enforce policy; `StrictAddress()` rejects
+  a stake-only match outright when proof of payment-key control is required.
 - **No replay protection here.** Identical inputs verify identically forever.
   Callers must bind each signature to a fresh server-issued nonce/challenge in
   the signed message and reject reuse. Document this loudly; it's the most likely
@@ -455,9 +534,13 @@ supplying a crafted `DataSignature`.
 Per TECH_NOTES: behavior-first, and **functional testing before "complete."**
 
 1. **Golden vectors (primary oracle).** Table-driven test porting all 14
-   `index.test.ts` cases with their exact hex. Each asserts the same verdict as
-   the reference. Do **not** copy the reference's test bug (one case passes the
-   address in the `message` slot, ~line 103); keep the corrected intent.
+   `index.test.ts` cases with their exact hex. Each asserts the same overall
+   verdict as the reference, and — for the address cases — also asserts
+   `Result.Address.MatchedVia` (the base-address "payment key" test must report
+   `Stake`, since that vector's key is the delegation key) and that
+   `StrictAddress()` turns those stake-only matches into failures. Do **not**
+   copy the reference's test bug (one case passes the address in the `message`
+   slot, ~line 103); keep the corrected intent.
 2. **Unit tests per internal package** — `cose` (decode, `Sig_structure` byte
    exactness, hashed/detached payload), `address` (header parse, each type,
    testnet/mainnet, script vs key, Byron rejection).
