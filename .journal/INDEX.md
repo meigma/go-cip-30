@@ -6,4 +6,4 @@
 | 002 | 2026-06-23 | CIP-30 design proposal | complete | Wrote the temporary CIP-30 verification design proposal at `.journal/002/DESIGN.md` (deps, public API, algorithm, address matching, tests); all open questions resolved, ready to implement. |
 | 003 | 2026-06-23 | Implement CIP-30 verification library | complete | Implemented the full `cip30` library across three human-gated multi-agent workflow phases (signature core, message+address, hardening) with a proto-managed cardano-signer functional oracle and fuzzing; merged as PR #6. |
 | 004 | 2026-06-23 | Library docs / README | complete | Rewrote the README and `docs/` site (3 diátaxis pages incl. a security guide) plus tested godoc examples to document the now-complete `cip30` API; merged as PR #7. |
-| 005 | 2026-06-24 | Security review findings | in-progress | Addressing a few security review findings in the `cip30` verification library. |
+| 005 | 2026-06-24 | Security review findings | complete | Remediated two Codex address-handling findings — reject noncanonical CIP-19 shapes (PR #9) and report reserved network tags as `NetworkUnknown` (PR #10); the third was already fixed in PR #8. |

@@ -100,3 +100,13 @@ verifies; only the reported `Network` becomes accurate.
 golden/functional fixtures unchanged. PR #10 opened, CI pending. Note: bech32 path
 still rejects reserved nibbles via `checkHRP` (`ErrNetworkMismatch`) — only
 raw/embedded reach `NetworkUnknown`.
+
+## 2026-06-24 11:48 — Close
+Session closed. Both outstanding findings merged with green CI:
+- **PR #9** (`77bde8e`) — reject noncanonical CIP-19 address shapes.
+- **PR #10** (`2f7aba2`) — report reserved network tags as `NetworkUnknown`.
+Finding 3 was already fixed pre-session (PR #8, `c26c4ce`). Developer approved both
+merges (PR #9 mid-session, PR #10 at close). Local `master` fast-forwarded to
+`2f7aba2`; both implementation worktrees removed. `SUMMARY.md` written, `INDEX.md`
+row → complete, `TECH_NOTES.md` updated with the address-input hardening invariants.
+No open threads.

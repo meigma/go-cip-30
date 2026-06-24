@@ -45,6 +45,17 @@ committing.
   script credentials never match a key; base-address stake fallback is default-on,
   off under `StrictAddress`. detached+hashed reconstructs the **raw** 28-byte
   blake2b-224 (the reference's UTF-8-of-hex approach is a bug we do not copy).
+- **Address-input hardening (session 005, security review, PRs #8/#9/#10):**
+  `internal/address.Parse` enforces **canonical CIP-19 shapes** — exact lengths
+  (base 57, enterprise 29, reward 29; over-length → `ErrTrailingBytes`), pointer
+  types 4/5 rejected as unsupported like Byron (only their payment credential was
+  ever matchable). Noncanonical/unsupported input is `ErrDecodeAddress`, not a
+  verdict. **Reserved network nibbles (2–15) are accepted but reported as the
+  public `NetworkUnknown`** (not collapsed to Testnet); `Verify`/`Valid()`/matching
+  are unchanged, so callers enforcing a network must reject `NetworkUnknown`. The
+  bech32 path additionally cross-checks HRP↔network/class (`checkHRP`, PR #8). These
+  guards matter mainly for raw-hex / embedded protected-header addresses, which have
+  no HRP to cross-check.
 - **Deps:** `fxamacker/cbor/v2`, stdlib `crypto/ed25519`,
   `golang.org/x/crypto/blake2b` (`New(28,nil)`), `btcsuite/.../bech32`
   (`DecodeNoLimit`). No `veraison/go-cose`, no BIP32.
