@@ -104,15 +104,22 @@ const (
 	Testnet Network = iota
 	// Mainnet is the Cardano mainnet (header network nibble 1).
 	Mainnet
+	// NetworkUnknown is a reserved or undefined CIP-19 network tag: any header
+	// network nibble other than 0 (testnet) or 1 (mainnet). CIP-19 reserves nibbles
+	// 2–15 for future networks; such an address is reported as NetworkUnknown rather
+	// than collapsed to Testnet, so callers are not misled about its network.
+	NetworkUnknown
 )
 
-// String returns the network name (Mainnet or Testnet).
+// String returns the network name (Mainnet, Testnet, or Unknown).
 func (n Network) String() string {
 	switch n {
 	case Mainnet:
 		return "Mainnet"
 	case Testnet:
 		return "Testnet"
+	case NetworkUnknown:
+		return "Unknown"
 	default:
 		return fmt.Sprintf("Network(%d)", uint8(n))
 	}
@@ -160,6 +167,11 @@ type AddressCheck struct {
 	// there is no prefix to check against, so Network is taken verbatim from the
 	// header nibble and is informational only — Matched does not depend on it, so
 	// callers must not treat Network as a trust boundary for raw/embedded input.
+	//
+	// A reserved CIP-19 network nibble (anything other than 0 or 1, reachable only
+	// on raw/embedded input) is reported as NetworkUnknown rather than collapsed to
+	// Testnet. Since Matched does not depend on Network, a caller that requires a
+	// specific network must reject NetworkUnknown itself.
 	Network Network
 }
 
@@ -244,10 +256,16 @@ func addressType(t address.Type) AddressType {
 	}
 }
 
-// network maps the internal address network to the public Network.
+// network maps the internal address network nibble to the public Network. A
+// nibble other than mainnet (1) or testnet (0) is a reserved CIP-19 value and is
+// reported as NetworkUnknown rather than collapsed to Testnet.
 func network(n address.Network) Network {
-	if n == address.Mainnet {
+	switch n {
+	case address.Mainnet:
 		return Mainnet
+	case address.Testnet:
+		return Testnet
+	default:
+		return NetworkUnknown
 	}
-	return Testnet
 }
