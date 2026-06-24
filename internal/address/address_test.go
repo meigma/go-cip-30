@@ -250,15 +250,70 @@ func TestDecodeRejects(t *testing.T) {
 		})
 	}
 
-	t.Run("rejects an oversized base address without panicking", func(t *testing.T) {
+	t.Run("rejects an oversized base address with trailing bytes", func(t *testing.T) {
 		oversized := append([]byte{}, validBaseRaw.Raw...)
 		oversized = append(oversized, make([]byte, 100)...)
-		// Oversized input must not panic; it parses (extra bytes are ignored) and the
-		// credentials are still the first 56 payload bytes.
+		// Trailing bytes beyond the canonical 57-byte base shape are rejected, not
+		// silently ignored — and must not panic.
 		got, err := Parse(oversized)
-		require.NoError(t, err, "extra trailing bytes are tolerated, not a panic")
-		assert.Equal(t, validBaseRaw.Payment.Hash, got.Payment.Hash)
+		require.ErrorIs(t, err, ErrTrailingBytes, "trailing bytes are non-canonical and rejected")
+		assert.Nil(t, got)
 	})
+}
+
+// TestParseRejectsNonCanonicalShapes verifies the raw-bytes entry point enforces
+// the exact canonical CIP-19 length for each fixed-shape type (rejecting trailing
+// bytes with ErrTrailingBytes) and rejects pointer addresses, whose chain-pointer
+// payload this library does not interpret. These are the non-canonical shapes a
+// hostile embedded or raw-hex address could otherwise use to satisfy a match on
+// the fixed credential window.
+func TestParseRejectsNonCanonicalShapes(t *testing.T) {
+	hash := make([]byte, hashSize)         // a 28-byte credential window
+	doubleHash := make([]byte, 2*hashSize) // a 56-byte payment+delegation window
+
+	tests := []struct {
+		name string
+		raw  []byte
+		want error
+	}{
+		// Base (type 0, header 0x01): canonical length is 57 bytes.
+		{name: "base one byte short", raw: append([]byte{0x01}, doubleHash[:len(doubleHash)-1]...), want: ErrTooShort},
+		{
+			name: "base with one trailing byte",
+			raw:  append(append([]byte{0x01}, doubleHash...), 0x00),
+			want: ErrTrailingBytes,
+		},
+		// Enterprise (type 6, header 0x61): canonical length is 29 bytes.
+		{name: "enterprise one byte short", raw: append([]byte{0x61}, hash[:len(hash)-1]...), want: ErrTooShort},
+		{
+			name: "enterprise with one trailing byte",
+			raw:  append(append([]byte{0x61}, hash...), 0x00),
+			want: ErrTrailingBytes,
+		},
+		// Reward (type 14, header 0xe1): canonical length is 29 bytes.
+		{name: "reward one byte short", raw: append([]byte{0xe1}, hash[:len(hash)-1]...), want: ErrTooShort},
+		{
+			name: "reward with one trailing byte",
+			raw:  append(append([]byte{0xe1}, hash...), 0x00),
+			want: ErrTrailingBytes,
+		},
+		// Pointer (types 4-5): rejected as unsupported regardless of length, so neither
+		// the bare "missing pointer payload" shape nor a pointer-shaped tail is accepted.
+		{name: "pointer key without pointer payload", raw: append([]byte{0x41}, hash...), want: ErrUnsupportedType},
+		{
+			name: "pointer script with a pointer-shaped tail",
+			raw:  append(append([]byte{0x51}, hash...), 0x01, 0x02, 0x03),
+			want: ErrUnsupportedType,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Parse(tc.raw)
+			require.ErrorIs(t, err, tc.want, "non-canonical shape must surface the documented sentinel")
+			assert.Nil(t, got, "no Address is returned on a parse error")
+		})
+	}
 }
 
 // TestDecodeRejectsNetworkMismatch builds a bech32 string whose HRP claims a
