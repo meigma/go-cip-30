@@ -66,3 +66,37 @@ varint parsing, and only the payment credential was ever matchable anyway.
 -fuzztime=30s` no panics (6.7M execs); golden/functional fixtures unchanged.
 PR #9 opened, CI pending. Lint gotcha: `gochecknoglobals` forbids package-level
 `var` in tests → folded the regression table into the test function.
+
+**PR #9 merged** (squash `77bde8e`); developer confirmed LGTM. Worktree + stale
+branch cleaned up; local `master` synced.
+
+## 2026-06-24 11:25 — Finding 2: reserved network tags (PR #10)
+
+**Finding (Codex Security, Low, CWE-20):** `internal/address.Parse` stores any
+header network nibble, and the public `network()` mapping (`address.go`) collapsed
+every non-mainnet value to `Testnet`. CIP-19 defines only nibble 0 (testnet) /
+1 (mainnet); 2–15 are reserved. So a raw/embedded address with a reserved nibble
+(e.g. reward `0xe2…`) returned `Valid()==true` reporting `Network=Testnet`.
+(Developer noted finding 3 of 3 was already addressed previously — this is the
+last one.)
+
+**Decision (developer):** **accept but report accurately** (option B), not reject.
+Key realization: the internal decoder already preserves the raw nibble; only the
+public `network()` mapping collapses it. So the fix is purely root-package and
+`Valid()`/matching/`internal/address` are unchanged — a matching credential still
+verifies; only the reported `Network` becomes accurate.
+
+**Fix (PR #10, branch `fix/address-reserved-network`):**
+- `address.go`: added public `Network` value `NetworkUnknown` (nibble 2–15),
+  rewrote `network()` collapse → switch (default → `NetworkUnknown`), added
+  `String()` case `"Unknown"`, updated `AddressCheck.Network` godoc.
+- Tests: root `TestVerifyReportsReservedNetworkAsUnknown` (supplied hex + embedded;
+  supplied path asserts `Valid()==true`, embedded path asserts address-check fields
+  since `sign1WithEmbeddedAddress` carries a zero sig), `TestNetworkUnknownString`,
+  and internal `TestParsePreservesReservedNetworkNibble`.
+- `docs/docs/security.md`: updated the "Network is informational" section.
+
+**Verification:** `moon run root:check` green; fuzz 30s no panics (5.6M execs);
+golden/functional fixtures unchanged. PR #10 opened, CI pending. Note: bech32 path
+still rejects reserved nibbles via `checkHRP` (`ErrNetworkMismatch`) — only
+raw/embedded reach `NetworkUnknown`.
