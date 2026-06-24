@@ -77,11 +77,14 @@ tasks:
       cache: false
       runInCI: true
 
-  # One-time local setup: clone the CIP-30 reference implementation into the
-  # gitignored ref/ folder. Idempotent; skipped if already present. Refresh by
-  # deleting ref/cardano-verify-datasignature and re-running.
+  # One-time local setup: clone the upstream CIP-30 reference repos into the
+  # gitignored ref/ folder. Idempotent; each repo is skipped if already present.
+  # Refresh one by deleting its folder under ref/ and re-running.
   setup-ref:
-    script: 'test -d ref/cardano-verify-datasignature || git clone --depth 1 https://github.com/cardano-foundation/cardano-verify-datasignature ref/cardano-verify-datasignature'
+    script: |
+      set -e
+      test -d ref/cardano-verify-datasignature || git clone --depth 1 https://github.com/cardano-foundation/cardano-verify-datasignature ref/cardano-verify-datasignature
+      test -d ref/CIPs || git clone --depth 1 https://github.com/cardano-foundation/CIPs ref/CIPs
     toolchains: ['system']
     inputs: []
     options:
