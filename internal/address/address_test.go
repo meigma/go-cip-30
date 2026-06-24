@@ -276,6 +276,49 @@ func TestDecodeRejectsNetworkMismatch(t *testing.T) {
 	assert.Nil(t, got)
 }
 
+// TestDecodeRejectsHRPTypeMismatch checks that a valid Cardano payload cannot
+// be re-labeled with the wrong bech32 class or an arbitrary HRP before matching.
+func TestDecodeRejectsHRPTypeMismatch(t *testing.T) {
+	mainnetReward, err := Decode(mainnetType14)
+	require.NoError(t, err)
+	mainnetBase, err := Decode(mainnetType0)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		hrp  string
+		raw  []byte
+		want error
+	}{
+		{
+			name: "rejects reward payload under payment hrp",
+			hrp:  hrpMainnetPayment,
+			raw:  mainnetReward.Raw,
+			want: ErrHRPMismatch,
+		},
+		{
+			name: "rejects base payload under stake hrp",
+			hrp:  hrpMainnetStake,
+			raw:  mainnetBase.Raw,
+			want: ErrHRPMismatch,
+		},
+		{
+			name: "rejects unknown hrp",
+			hrp:  "notcardano",
+			raw:  mainnetReward.Raw,
+			want: ErrInvalidBech32,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Decode(encodeBech32(t, tc.hrp, tc.raw))
+			require.ErrorIs(t, err, tc.want)
+			assert.Nil(t, got)
+		})
+	}
+}
+
 // TestParseRejectsShortRaw checks the raw-bytes entry point (used for the
 // embedded header address) bounds-checks before slicing.
 func TestParseRejectsShortRaw(t *testing.T) {
