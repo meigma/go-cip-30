@@ -90,3 +90,18 @@ tasks:
     options:
       cache: false
       runInCI: false
+
+  # Local-only: regenerate the committed CIP-30 functional test fixtures in
+  # testdata/fixtures/ from a fixed throwaway test mnemonic, using cardano-signer
+  # (managed via proto) both to sign and as an independent verification oracle.
+  # CI tests read the committed fixtures, so this task is never run in CI. See
+  # scripts/gen-fixtures.sh for the throwaway-key and anti-circularity notes.
+  gen-fixtures:
+    script: |
+      set -e
+      bash scripts/gen-fixtures.sh
+    toolchains: ['system']
+    inputs: []
+    options:
+      cache: false
+      runInCI: false

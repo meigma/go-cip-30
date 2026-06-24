@@ -102,10 +102,11 @@ const (
 var (
 	// ErrEmpty indicates the input string was empty.
 	ErrEmpty = errors.New("address: empty input")
-	// ErrInvalidBech32 indicates the input was not decodable bech32.
+	// ErrInvalidBech32 indicates the input was not decodable bech32. Decode also
+	// surfaces it (wrapping the bech32 error) for a string that is neither bech32
+	// nor hex, since an address-shaped string is far likelier to be a mistyped
+	// bech32 address than mistyped hex.
 	ErrInvalidBech32 = errors.New("address: invalid bech32")
-	// ErrInvalidHex indicates a non-bech32 input was not valid hex either.
-	ErrInvalidHex = errors.New("address: invalid hex")
 	// ErrTooShort indicates the raw address was shorter than its header requires.
 	ErrTooShort = errors.New("address: raw address too short for its type")
 	// ErrUnsupportedType indicates a Byron or otherwise unknown address type.
