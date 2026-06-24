@@ -140,8 +140,14 @@ bech32 address the nibble is cross-checked against the human-readable prefix;
 for raw hex or an embedded protected-header address there is no prefix to check
 against, so the value is taken verbatim and is **informational only**.
 
+CIP-19 defines only two network tags — `Testnet` (nibble 0) and `Mainnet`
+(nibble 1). A raw or embedded address with a reserved nibble (2–15) is reported
+as `NetworkUnknown` rather than collapsed to `Testnet`, so a reserved network is
+never mistaken for testnet.
+
 !!! note
 
     `Matched` does not depend on `Network`. Do not treat `Network` as a trust
     boundary for raw or embedded input — enforce the expected network yourself
-    if it matters.
+    if it matters, and in particular reject `NetworkUnknown` if your application
+    requires a known network.

@@ -394,3 +394,19 @@ func TestParseRejectsShortRaw(t *testing.T) {
 		})
 	}
 }
+
+// TestParsePreservesReservedNetworkNibble documents that the decoder accepts and
+// preserves the raw network nibble verbatim, including reserved CIP-19 values
+// (2–15). Reporting policy — whether a reserved network is surfaced distinctly or
+// collapsed — lives in the root cip30 package, not in this decoder.
+func TestParsePreservesReservedNetworkNibble(t *testing.T) {
+	// A reward address (type 14) with a reserved network nibble of 2: header 0xe2
+	// followed by a 28-byte stake credential.
+	raw := append([]byte{0xe2}, make([]byte, hashSize)...)
+
+	got, err := Parse(raw)
+	require.NoError(t, err, "a reserved network nibble is accepted, not rejected, in the decoder")
+	assert.Equal(t, Network(2), got.Network, "the raw network nibble is preserved verbatim")
+	assert.Equal(t, TypeRewardKey, got.Type)
+	require.NotNil(t, got.Stake.Hash, "the stake credential is still extracted")
+}
