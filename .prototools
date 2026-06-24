@@ -1,4 +1,6 @@
 golangci-lint = "=2.12.2"
+cardano-signer = "=1.35.0"
 
 [plugins.tools]
 golangci-lint = "file://.moon/proto/golangci-lint.toml"
+cardano-signer = "file://.moon/proto/cardano-signer.toml"

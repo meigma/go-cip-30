@@ -1,0 +1,26 @@
+name = "cardano-signer"
+type = "cli"
+
+# Upstream ships a single mac build (x64); on Apple Silicon it runs under
+# Rosetta. Pin macos to x64 rather than {arch} since no mac-arm64 asset exists.
+[platform.macos]
+download-file = "cardano-signer-{version}_mac-x64.tar.gz"
+exe-path = "cardano-signer"
+
+[platform.linux]
+download-file = "cardano-signer-{version}_linux-{arch}.tar.gz"
+exe-path = "cardano-signer"
+
+[platform.windows]
+download-file = "cardano-signer-{version}_windows-x64.tar.gz"
+exe-path = "cardano-signer.exe"
+
+[install]
+download-url = "https://github.com/gitmachtl/cardano-signer/releases/download/v{version}/{download_file}"
+
+[install.arch]
+aarch64 = "arm64"
+x86_64 = "x64"
+
+[resolve]
+git-url = "https://github.com/gitmachtl/cardano-signer"
