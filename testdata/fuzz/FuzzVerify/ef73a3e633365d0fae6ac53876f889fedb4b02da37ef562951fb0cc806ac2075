@@ -1,0 +1,5 @@
+go test fuzz v1
+string("81f6")
+string("a4010103272006215820b89526fd6bf4ba737c55ea90670d16a27f8de6cc1982349b3b676705a2f420c6")
+string("m")
+string("")
