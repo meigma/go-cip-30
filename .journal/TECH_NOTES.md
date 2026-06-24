@@ -11,12 +11,37 @@
 - **Reference material:** run `moon run setup-ref` to clone `cardano-foundation/cardano-verify-datasignature` (TS reference impl) and `cardano-foundation/CIPs` (spec source) into the gitignored `ref/` folder. Read these before designing the Go API.
 - **Release:** release-please cuts semver tags + CHANGELOG (no binaries/containers). `.github/repository-settings.toml` is declarative — apply it with `configure_github_repo.py apply`.
 
-## CIP-30 verification design (session 002)
+## CIP-30 library (implemented — session 003, PR #6 / `8fd783d`)
 
-- **Read `.journal/002/DESIGN.md` first** before implementing the `cip30`
-  library — it is the full design proposal (scope, deps, public API, verification
-  algorithm, CIP-19 address matching, edge cases, tests, milestones). Temporary
-  scaffolding; supersede once the library + real docs exist.
-- **Verification model:** a CIP-30 `DataSignature` = `{signature: hex(cbor<COSE_Sign1>), key: hex(cbor<COSE_Key>)}`. Verify = `ed25519.Verify(x, cbor(["Signature1", protectedBytes, h'', payload]), sig)` where `x` is the raw 32-byte key from COSE_Key. Optional message check (honors `hashed`/detached payload) and address check (`blake2b224(x)` vs the bech32 address's key-hash credential, CIP-19).
-- **Dependencies (decided):** `fxamacker/cbor/v2`, stdlib `crypto/ed25519`, `golang.org/x/crypto/blake2b` (`New(28,nil)`), `btcsuite/btcd/btcutil/bech32` (`DecodeNoLimit`). Hand-roll the COSE `Sig_structure` (never re-encode `body_protected`); do NOT pull `veraison/go-cose`. No BIP32 needed.
-- **Test oracle:** `cardano-signer` CLI (gitmachtl) generates real CIP-30 vectors offline (`keygen` + `sign --cip30`) and verifies them (`verify --cip30`) — no browser wallet/funds/network. Plus the 14 golden vectors in `ref/cardano-verify-datasignature/index.test.ts`.
+The `cip30` library is now implemented and on `master`. `.journal/002/DESIGN.md`
+is **superseded scaffolding** — the code + tests are the source of truth; read it
+only for design rationale. Real `docs/` are still TODO (a future session).
+
+- **Layout:** `package cip30` at the repo root (`cip30.go`, `address.go`,
+  `message.go`, `errors.go`) over two internal packages: `internal/cose` (CBOR
+  codec + `Sig_structure`) and `internal/address` (CIP-19 parsing). Matching
+  policy and the public vocabulary live in the root, not in `internal/address`.
+- **Verification model:** a `DataSignature` = `{signature: hex(cbor<COSE_Sign1>),
+  key: hex(cbor<COSE_Key>)}`. Verify = `ed25519.Verify(x, cbor(["Signature1",
+  protectedBytesVerbatim, h'', payload]), sig)`. Optional `WithMessage` (honors
+  `hashed`/is-hex-digest/detached), `WithAddress`/`WithEmbeddedAddress`/
+  `StrictAddress` (`blake2b224(x)` vs a CIP-19 key-hash credential). `Verify`
+  returns `(*Result, error)`; error = unprocessable input, `Result` = the verdict
+  (`Valid()`, `SignatureValid`, `Message`, `Address.MatchedVia`).
+- **Key invariants (don't break):** never re-encode `body_protected` (reuse wire
+  bytes); a strict CBOR decode mode rejects duplicate COSE map keys; length-guard
+  before `ed25519.Verify`; empty/detached payload encodes as `h''` not null;
+  script credentials never match a key; base-address stake fallback is default-on,
+  off under `StrictAddress`. detached+hashed reconstructs the **raw** 28-byte
+  blake2b-224 (the reference's UTF-8-of-hex approach is a bug we do not copy).
+- **Deps:** `fxamacker/cbor/v2`, stdlib `crypto/ed25519`,
+  `golang.org/x/crypto/blake2b` (`New(28,nil)`), `btcsuite/.../bech32`
+  (`DecodeNoLimit`). No `veraison/go-cose`, no BIP32.
+- **Test oracle:** `cardano-signer` (gitmachtl) is **proto-managed**
+  (`.moon/proto/cardano-signer.toml`, pinned in `.prototools`; macos pinned to x64
+  / Rosetta). `moon run gen-fixtures` (`scripts/gen-fixtures.sh`, `runInCI:false`)
+  regenerates committed `testdata/fixtures/manifest.json` from a fixed throwaway
+  mnemonic, cross-checked against cardano-signer's own `verify --cip30`
+  (anti-circular). CI reads the committed fixtures. Plus the 15 golden vectors in
+  `ref/cardano-verify-datasignature/index.test.ts` (the design's "14" was off by
+  one) and a `FuzzVerify` no-panic target with a committed seed corpus.

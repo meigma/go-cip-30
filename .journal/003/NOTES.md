@@ -171,3 +171,19 @@ Branch `feat/cip30-verification` commits: 02e81b2 (P1), 4dad2d3 (P2), 00c779e
 (proto), 0308964 (P3). All four prior phases' tests stay green.
 
 Status: **paused at Gate 3** (final). On approval: open the single PR to master.
+
+## 2026-06-23 22:09 — Close
+Gate 3 approved. Opened **PR #6** (`feat(cip30): implement CIP-30 data signature
+verification`); CI green (`ci`/Moon, GitHub Pages, Kusari Inspector all pass;
+mergeable/CLEAN). Developer approved the merge.
+
+Closed out: squash-merged PR #6 → `master` (squash commit `8fd783d`), fast-
+forwarded the local `master` checkout, and removed the `feat/cip30-verification`
+worktree + branch via `wt remove` (only `master` + `journal/jmgilman` remain).
+
+Handoff: the `cip30` library is live on `master`. `SUMMARY.md` written; `INDEX.md`
+row → complete; `TECH_NOTES.md` updated to mark the library implemented and
+`.journal/002/DESIGN.md` superseded. **Next session:** real `docs/` (the MkDocs
+site was intentionally untouched this pass, per the developer). Also tracked:
+base-address functional fixtures deferred (covered by the reference golden
+vectors). Session complete.
