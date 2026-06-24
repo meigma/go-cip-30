@@ -73,3 +73,50 @@ Carried forward: DESIGN says "14 golden vectors" but `index.test.ts` has **15**
 test cases — surfaces in P2.
 
 Status: **paused at Gate 1** awaiting developer approval before Phase 2.
+
+## 2026-06-23 20:48 — Phase 2 implemented (Gate 2 reached)
+Gate 1 approved ("LGTM. Proceed to phase 2"). Ran `cip30-impl-phase2` (same
+4-stage harness, 6 agents, ~521k tokens, ~19 min). Committed `4dad2d3` on
+`feat/cip30-verification` (+1811/-22, 11 files).
+
+Added: `internal/address` (pure CIP-19 decoder — bech32 via btcsuite
+`DecodeNoLimit` or hex; payment/stake credential extraction; bounds-checked;
+network-nibble vs HRP check; Byron/truncated rejected; holds NO matching
+policy), root `address.go` (the matching policy + public enums
+Credential/AddressSource/AddressType/Network + MessageCheck/AddressCheck),
+`message.go` (digest/is-hex-guard/detached logic). Extended `cip30.go`
+(WithMessage/WithAddress/WithEmbeddedAddress/StrictAddress, Signature
+VerifyMessage/MatchesAddress, Verify orchestration, Result.Message/Address,
+extended Valid(), conflicting-option rejection) and `errors.go`. Ported ALL 15
+golden vectors (design said 14) with MatchedVia/Strict/Source assertions + a
+CIP-19 type matrix + attacker paths. build/vet/gofmt/golangci-lint(0)/test all
+green; 94 tests. I read internal/address.go, address.go, message.go, cip30.go,
+and golden_test.go in full and re-ran build/vet/fmt/lint/test myself.
+
+Matching policy verified correct vs DESIGN §8: payment-first, reward-stake
+always counts, base-stake fallback gated by `!strict`, script/nil credentials
+never match (constant-time compare). The addr1qxtu4w2 base address matches
+keyStake via Stake (default true, strict false) and keyPayment via Payment
+(true under strict); enterprise via Payment; wrong address → None with
+SignatureValid=true.
+
+Review found only LOW-severity doc/style items (no logic defects). Fix stage
+applied 8 (doc clarifications incl. the WithEmbeddedAddress mangled-address
+warning; removed a withStrict indirection; dropped a dead Source default) and
+deferred fuzz + cardano-signer + full strictness audit to Phase 3.
+
+Noted for Phase 3 (deferred, documented, none are false-accept/panic vectors):
+detached+hashed correct-path NOT yet confirmed against a real cardano-signer
+`--hashed` detached vector; oversized raw addresses tolerated (trailing bytes
+ignored); network nibble taken verbatim for raw/hex/embedded input
+(informational, does not gate Valid); HRP-type vs address-type consistency
+unchecked. Also: a reviewer's transient `zz_adversarial_test.go` scratch probe
+was created+deleted during review — tree is clean, confirmed via git status.
+Other deviations: used `crypto/subtle.ConstantTimeCompare` (defensive,
+harmless); internal/address owns CIP-19 parsing while root owns policy + public
+enums (clean hexagonal reorg from DESIGN §6's struct layout).
+
+Status: **paused at Gate 2** awaiting developer approval before Phase 3
+(hardening: typed-error audit, fuzz target, cardano-signer functional oracle,
+negative/robustness tests, resolve the deferred confirmations). No docs/ this
+pass per the brief.
