@@ -80,3 +80,15 @@ security guides (#7)`). Updated local `master`, removed the `docs/library-docs`
 worktree + branch via `wt remove` (tree matched master). GitHub Pages deploy runs
 on the push to `master` → live site refreshes at
 https://meigma.github.io/go-cip-30/. Session goal complete.
+
+## 2026-06-24 08:04 — Close
+Closing session 004. Phase 1 was already landed mid-session: **PR #7** squash-merged
+to `master` (`4c03f95`), local `master` fast-forwarded, `docs/library-docs`
+worktree + branch removed. Re-verified at close: `git ls-files .journal` empty on
+`master` (no journal contamination), `master` == `origin/master` == `4c03f95`,
+only `master` + `journal/jmgilman` worktrees remain.
+Recorded: `SUMMARY.md` (status complete), `INDEX.md` row → complete, and
+`TECH_NOTES.md` updated with the docs layout + the depguard/`log` and
+`golangci-lint fmt` doc-as-code gotchas. Hand-off: nothing outstanding; module
+still un-tagged (`0.0.0`), so pkg.go.dev picks up the new godoc on its next
+known-version fetch.

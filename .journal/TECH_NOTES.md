@@ -15,7 +15,18 @@
 
 The `cip30` library is now implemented and on `master`. `.journal/002/DESIGN.md`
 is **superseded scaffolding** — the code + tests are the source of truth; read it
-only for design rationale. Real `docs/` are still TODO (a future session).
+only for design rationale.
+
+**Docs (session 004, PR #7):** the MkDocs site is a 3-page diátaxis set under
+`docs/docs/` — `index.md` (Home), `verifying.md` (how-to), `security.md`
+(footgun/threat guide); nav in `docs/mkdocs.yml`. The API reference is **godoc on
+pkg.go.dev** — there is intentionally no markdown reference page; keep it that
+way. Tested godoc examples live in `example_test.go` (external `package
+cip30_test`, seeded from the golden vectors with `// Output:`). Two repo gotchas
+for doc-as-code: `depguard` forbids `log` in non-main files (examples use
+`fmt.Println(err); return`), and `moon run root:format`
+(`golangci-lint fmt`, gofumpt+golines) wraps long literals — format before
+committing.
 
 - **Layout:** `package cip30` at the repo root (`cip30.go`, `address.go`,
   `message.go`, `errors.go`) over two internal packages: `internal/cose` (CBOR
