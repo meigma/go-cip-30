@@ -4,7 +4,7 @@ go 1.26.4
 
 require (
 	github.com/btcsuite/btcd/btcutil v1.2.0
-	github.com/fxamacker/cbor/v2 v2.9.2
+	github.com/fxamacker/cbor/v2 v2.9.3
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.53.0
 )
